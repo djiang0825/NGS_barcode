@@ -15,28 +15,11 @@ import time
 import multiprocessing as mp
 import os
 from datetime import datetime
-from numba import jit
 from concurrent.futures import ProcessPoolExecutor
 
-# DNA encoding constants
-DNA_BASES = 'ATGC'
-DNA_TO_INT = {'A': 0, 'T': 1, 'G': 2, 'C': 3}
-INT_TO_DNA = {0: 'A', 1: 'T', 2: 'G', 3: 'C'}
-
-def decode_sequence(seq_array):
-    """Convert integer array back to DNA string"""
-    return ''.join(INT_TO_DNA[base] for base in seq_array)
-
-@jit(nopython=True)
-def hamming_distance_int(seq1, seq2, min_distance):
-    """Calculate Hamming distance with early stopping (assumes equal-length sequences)"""
-    distance = 0
-    for i in range(len(seq1)):
-        if seq1[i] != seq2[i]:
-            distance += 1
-            if distance >= min_distance:
-                return distance  # Early stopping
-    return distance
+# Import utility functions
+from utils.dna_utils import decode_sequence
+from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int
 
 def check_candidate_distance(candidate, existing_pool, min_distance):
     """Check if candidate sequence is sufficiently distant from all existing sequences"""
@@ -44,37 +27,6 @@ def check_candidate_distance(candidate, existing_pool, min_distance):
         if hamming_distance_int(candidate, existing_seq, min_distance) < min_distance:
             return False
     return True
-
-@jit(nopython=True)
-def check_gc_content_int(seq_array, gc_min, gc_max):
-    """Check if sequence passes GC content filter (works with integer arrays)"""
-    # G=2, C=3 in our encoding - count them directly
-    gc_count = 0
-    for base in seq_array:
-        if base == 2 or base == 3:  # G or C
-            gc_count += 1
-    gc_content = gc_count / len(seq_array)
-    return gc_min <= gc_content <= gc_max
-
-@jit(nopython=True)
-def check_homopolymer_int(seq_array, max_length):
-    """Check for homopolymer runs longer than max_length (works with integer arrays)"""
-    if len(seq_array) == 0:
-        return True
-        
-    current_base = seq_array[0]
-    current_count = 1
-    
-    for base in seq_array[1:]:
-        if base == current_base:
-            current_count += 1
-            if current_count > max_length:
-                return False  # Fails check
-        else:
-            current_base = base
-            current_count = 1
-    
-    return True  # Passes check
 
 def passes_biological_filters_int(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological quality filters (works with integer arrays)"""
