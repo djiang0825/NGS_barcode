@@ -3,7 +3,6 @@
 filter_utils.py
 
 Core filter utility functions with Numba JIT compilation for efficient DNA barcode processing.
-Includes both individual filter functions and combined biological filter functions.
 """
 
 from numba import jit
@@ -33,7 +32,7 @@ def check_gc_content_int(seq_array, gc_min, gc_max):
 
 @jit(nopython=True)
 def check_homopolymer_int(seq_array, max_length):
-    """Check for homopolymer runs longer than max_length (works with integer arrays)"""
+    """Check for homopolymer repeats longer than max_length (works with integer arrays)"""
     if len(seq_array) == 0:
         return True
         

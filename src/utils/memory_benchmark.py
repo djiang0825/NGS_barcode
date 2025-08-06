@@ -3,6 +3,10 @@
 memory_benchmark.py
 
 Simple memory benchmarking utility for tracking maximum memory usage of processes.
+
+Example usage: python src/utils/memory_benchmark.py src/{script_name}.py --args
+
+Output: memory usage report shown in terminal and .log file
 """
 
 import psutil

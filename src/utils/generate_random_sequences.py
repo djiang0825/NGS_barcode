@@ -2,20 +2,31 @@
 """
 generate_random_sequences.py
 
-Generate random DNA sequences for testing validation scripts.
-Simple utility that creates random sequences without any filtering.
+Generate random DNA sequences for testing validation scripts (variable length sequences supported).
+
+Input: none
+
+Output: random DNA sequences (one per line as .txt)
+
+Optional arguments:
+--output: output file path (default: test/{count}_random_{min}to{max}_bp_sequences.txt)
+
+Required arguments:
+--count: number of sequences to generate
+--lengths: possible lengths for sequences (e.g., 15 20 25)
 """
 
 import argparse
 import random
 import os
+import numpy as np
 
-# DNA bases
-DNA_BASES = 'ATGC'
+# Import DNA encoding utilities
+from dna_utils import decode_sequence
 
 def generate_random_sequence(length):
-    """Generate a single random DNA sequence of given length"""
-    return ''.join(random.choice(DNA_BASES) for _ in range(length))
+    """Generate a single random DNA sequence of given length as integer array"""
+    return np.random.choice([0, 1, 2, 3], size=length).astype(np.int8)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -64,18 +75,19 @@ def main():
     for _ in range(args.count):
         # Randomly choose a length from the provided options
         chosen_length = random.choice(args.lengths)
-        seq = generate_random_sequence(chosen_length)
-        sequences.append(seq)
+        seq_array = generate_random_sequence(chosen_length)
+        sequences.append(seq_array)
     
-    # Write to file
+    # Write to file (convert to DNA strings for output)
     with open(args.output, 'w') as f:
-        for seq in sequences:
-            f.write(seq + '\n')
+        for seq_array in sequences:
+            dna_string = decode_sequence(seq_array)
+            f.write(dna_string + '\n')
     
     # Count sequences by length
     length_counts = {}
-    for seq in sequences:
-        length = len(seq)
+    for seq_array in sequences:
+        length = len(seq_array)
         length_counts[length] = length_counts.get(length, 0) + 1
     
     length_breakdown = ", ".join([f"{count} at length {length}" for length, count in sorted(length_counts.items())])

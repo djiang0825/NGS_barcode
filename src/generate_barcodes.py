@@ -2,10 +2,34 @@
 """
 generate_barcodes.py
 
-Generate diverse DNA barcodes from scratch using iterative growth algorithm.
+Efficiently generate large set of NGS barcodes from scratch using iterative growth algorithm (paired mode supported).
 
-This script creates large sets of DNA sequences that satisfy minimum distance (between-sequence) and
-biological quality constraints (within-sequence) using an efficient iterative growth approach.
+Algorithm overview (guarantees no duplicate sequences and satisfies >= min distance constraints in final pool):
+
+1. Generate random sequences that pass within-sequence biological filters (i.e., GC content and homopolymer repeats)
+2. Filter candidates for >= min distance constraints (parallel)
+3. Within-batch >= min distance checking (sequential)
+4. Add the verified batch to pool
+5. Repeat until target count is reached
+
+Input: none
+
+Output: barcode list (one per line as .txt) and .log file
+
+Optional arguments:
+--gc-min: minimum GC content (default: 0.4)
+--gc-max: maximum GC content (default: 0.6)
+--homopolymer-max: maximum allowed homopolymer length (default: 2)
+--min-distance: minimum Hamming distance between sequences (default: 3)
+--cpus: number of CPU cores to use (default: all available)
+--batches: number of batches to divide generation into (controls batch size; default: 10)    
+--paired: generate paired barcodes (doubles target count, splits into two files; default: False)
+--output-dir: output directory for barcodes and logs
+--output-prefix: output filename prefix (adds .txt automatically)
+
+Required arguments:
+--count: number of barcodes to generate
+--length: length of each barcode sequence
 """
 
 import numpy as np

@@ -2,10 +2,29 @@
 """
 validate_barcodes.py
 
-Validate if a provided list of DNA barcodes satisfies all quality filters.
+Validate if provided lists of NGS barcodes satisfy all quality filters (variable length sequences supported).
 
-This script checks if barcode sequences meet the same biological and distance
-constraints used in the generation script.
+Algorithm overview:
+1. Read input files
+2. Check biological filters (GC content and homopolymer repeats)
+3. For those that pass biological filters, check distance constraints (if --skip-distance is False)
+    3a. this is done sequentially on the fly with early stopping on first violation to ensure accuracy and efficiency
+    3b. uses hamming distance for sequences of equal length, otherwise uses Levenshtein distance
+
+Input: list(s) of NGS barcodes (one per line as .txt). Multiple files supported, concatenated automatically.
+
+Output: validation report (.txt) and .log file
+
+Optional arguments:
+--gc-min: minimum GC content (default: 0.4)
+--gc-max: maximum GC content (default: 0.6)
+--homopolymer-max: maximum allowed homopolymer length (default: 2)
+--min-distance: minimum Hamming distance between sequences (default: 3)
+--skip-distance: skip distance validation if biological filters fail (default: False)
+--output-dir: output directory for validation logs and reports (default: test)
+
+Required arguments:
+--input: input file(s) containing NGS barcodes (one per line)
 """
 
 import argparse
