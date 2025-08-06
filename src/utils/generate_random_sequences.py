@@ -28,7 +28,7 @@ def main():
     parser.add_argument('--lengths', nargs='+', type=int, required=True,
                        help='Possible lengths for sequences (e.g., 15 20 25)')
     parser.add_argument('--output', type=str, 
-                       help='Output file path (default: test/{count}_random_{min}to{max}_bp_barcodes.txt)')
+                       help='Output file path (default: test/{count}_random_{min}to{max}_bp_sequences.txt)')
     
     args = parser.parse_args()
     
@@ -57,7 +57,7 @@ def main():
         else:
             length_range = f"{min_length}to{max_length}"
         
-        args.output = f"test/{args.count}_random_{length_range}_bp_barcodes.txt"
+        args.output = f"test/{args.count}_random_{length_range}_bp_sequences.txt"
     
     # Generate sequences with random lengths
     sequences = []

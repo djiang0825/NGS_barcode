@@ -303,10 +303,13 @@ def main():
             for barcode in barcodes[split_point:]:
                 f.write(barcode + '\n')
         
-        print(f"Successfully generated {len(barcodes)} barcodes")
-        print(f"Paired files written to:")
-        print(f"  {paired1_filepath} ({split_point} barcodes)")
-        print(f"  {paired2_filepath} ({len(barcodes) - split_point} barcodes)")
+        # Log file locations
+        logging.info(f"Paired files written to:")
+        logging.info(f"  {paired1_filepath} ({split_point} barcodes)")
+        logging.info(f"  {paired2_filepath} ({len(barcodes) - split_point} barcodes)")
+        logging.info(f"Log file: {log_filepath}")
+        
+        print(f"Successfully generated {len(barcodes)} barcodes (paired)")
     else:
         # Write single output file
         output_filepath = os.path.join(args.output_dir, f"{args.output_prefix}.txt")
@@ -314,10 +317,11 @@ def main():
             for barcode in barcodes:
                 f.write(barcode + '\n')
         
+        # Log file location
+        logging.info(f"Output written to: {output_filepath}")
+        logging.info(f"Log file: {log_filepath}")
+        
         print(f"Successfully generated {len(barcodes)} barcodes")
-        print(f"Output written to: {output_filepath}")
-    
-    print(f"Log file: {log_filepath}")
 
 if __name__ == "__main__":
     main()

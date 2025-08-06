@@ -11,10 +11,8 @@ constraints used in the generation script.
 import argparse
 import logging
 import os
+import time
 from datetime import datetime
-import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor
-import threading
 
 # Import utility functions
 from utils.dna_utils import DNA_BASES, encode_sequence
@@ -34,56 +32,7 @@ def validate_sequence(seq_array, gc_min, gc_max, homopolymer_max):
     
     return True, "Passes all filters"
 
-def check_distance_chunk(chunk_data):
-    """Check distance for a chunk of sequence pairs - returns immediately on first violation"""
-    sequences, min_distance, start_idx = chunk_data
-    pairs_checked = 0
-    
-    for i in range(len(sequences)):
-        for j in range(i + 1, len(sequences)):
-            pairs_checked += 1
-            distance = calculate_distance(sequences[i], sequences[j], min_distance)
-            if distance < min_distance:
-                # Return immediately on first violation
-                return (start_idx + i, start_idx + j, distance), pairs_checked, True
-    
-    return None, pairs_checked, False
 
-def validate_distance_constraints_parallel(sequences, min_distance, n_cpus):
-    """Check if all sequences meet minimum distance requirements with parallel processing and immediate early stopping"""
-    if len(sequences) < n_cpus * 10:  # Skip parallelization for small datasets
-        return validate_distance_constraints(sequences, min_distance)
-    
-    total_pairs = len(sequences) * (len(sequences) - 1) // 2
-    pairs_checked = 0
-    violations = []
-    
-    # Create chunks of sequence pairs for parallel processing
-    chunk_size = max(100, len(sequences) // (n_cpus * 4))
-    chunks = []
-    
-    for i in range(0, len(sequences), chunk_size):
-        end_idx = min(i + chunk_size, len(sequences))
-        chunk_sequences = sequences[i:end_idx]
-        chunks.append((chunk_sequences, min_distance, i))
-    
-    # Process chunks in parallel
-    with ProcessPoolExecutor(max_workers=n_cpus) as executor:
-        futures = [executor.submit(check_distance_chunk, chunk) for chunk in chunks]
-        
-        for future in futures:
-            result, chunk_pairs, early_stop = future.result()
-            pairs_checked += chunk_pairs
-            
-            if early_stop:
-                # Found violation - cancel remaining futures and return immediately
-                violations = [result]  # Only store the first violation found
-                for f in futures:
-                    f.cancel()
-                logging.info(f"Early stopping: Found distance violation between sequences {result[0]+1} and {result[1]+1} (distance={result[2]})")
-                return violations, pairs_checked, total_pairs
-    
-    return violations, pairs_checked, total_pairs
 
 def validate_distance_constraints(sequences, min_distance):
     """Check if all sequences meet minimum distance requirements - exits early on first violation"""
@@ -103,28 +52,36 @@ def validate_distance_constraints(sequences, min_distance):
     
     return violations, pairs_checked, total_pairs
 
-def validate_barcodes(input_file, gc_min, gc_max, homopolymer_max, min_distance, output_dir, skip_distance=False, n_cpus=1):
+def validate_barcodes(input_files, gc_min, gc_max, homopolymer_max, min_distance, output_dir, skip_distance=False):
     """Main validation function"""
     logging.info(f"Starting barcode validation...")
-    logging.info(f"Input file: {input_file}")
+    logging.info(f"Input files: {input_files}")
     logging.info(f"Filter 1 (within-sequence), GC content: {gc_min:.1%} - {gc_max:.1%}")
     logging.info(f"Filter 2 (within-sequence), Max homopolymer: {homopolymer_max}")
     logging.info(f"Filter 3 (between-sequence), Minimum distance: {min_distance}")
     
-    # Read sequences
+    # Read sequences from all input files
     sequences = []
-    with open(input_file, 'r') as f:
-        for line_num, line in enumerate(f, 1):
-            seq = line.strip()
-            if not seq:  # Skip empty lines
-                continue
-            
-            # Basic validation
-            if not all(base in DNA_BASES for base in seq):
-                logging.error(f"Line {line_num}: Invalid DNA sequence '{seq}'")
-                continue
-            
-            sequences.append((line_num, seq))
+    line_num = 1
+    
+    # Convert single file to tuple for consistent handling
+    if isinstance(input_files, str):
+        input_files = (input_files,)
+    
+    for input_file in input_files:
+        with open(input_file, 'r') as f:
+            for line in f:
+                seq = line.strip()
+                if not seq:  # Skip empty lines
+                    continue
+                
+                # Basic validation
+                if not all(base in DNA_BASES for base in seq):
+                    logging.error(f"Line {line_num}: Invalid DNA sequence '{seq}'")
+                    continue
+                
+                sequences.append((line_num, seq))
+                line_num += 1
     
     # Check sequence lengths
     lengths = [len(seq) for _, seq in sequences]
@@ -168,12 +125,15 @@ def validate_barcodes(input_file, gc_min, gc_max, homopolymer_max, min_distance,
         pairs_checked = 0
         total_pairs = 0
     else:
-        # Check distance constraints (with early stopping and parallel processing)
-        distance_violations, pairs_checked, total_pairs = validate_distance_constraints_parallel(seq_arrays, min_distance, n_cpus)
+        # Check distance constraints (with early stopping - sequential processing)
+        distance_violations, pairs_checked, total_pairs = validate_distance_constraints(seq_arrays, min_distance)
     
     logging.info(f"Distance constraint results:")
     logging.info(f"  Total sequence pairs: {total_pairs} (input passed biological filters)")
-    logging.info(f"  Pairs checked: {pairs_checked} (early stopping on first violation)")
+    if len(distance_violations) > 0:
+        logging.info(f"  Pairs checked: {pairs_checked} (early stopping on first violation)")
+    else:
+        logging.info(f"  Pairs checked: {pairs_checked} (no violations found)")
     
     # Summary
     total_violations = len(biological_violations) + len(distance_violations)
@@ -251,8 +211,9 @@ def validate_arguments(args):
     if args.min_distance < 1:
         raise ValueError("Minimum distance must be ≥ 1")
     
-    if not os.path.exists(args.input):
-        raise ValueError(f"Input file does not exist: {args.input}")
+    for input_file in args.input:
+        if not os.path.exists(input_file):
+            raise ValueError(f"Input file does not exist: {input_file}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -261,8 +222,8 @@ def main():
     )
     
     # Required arguments
-    parser.add_argument('--input', type=str, required=True,
-                       help='Input file containing DNA barcodes (one per line)')
+    parser.add_argument('--input', type=str, required=True, nargs='+',
+                       help='Input file(s) containing DNA barcodes (one per line)')
     
     # Filter arguments
     parser.add_argument('--gc-min', type=float, default=0.4,
@@ -277,12 +238,10 @@ def main():
     # Performance arguments
     parser.add_argument('--skip-distance', action='store_true',
                        help='Skip distance validation if biological filters fail')
-    parser.add_argument('--cpus', type=int, default=mp.cpu_count(),
-                       help='Number of CPU cores to use for parallel distance checking')
     
     # Output arguments
     parser.add_argument('--output-dir', type=str, default='test',
-                       help='Output directory for validation reports')
+                       help='Output directory for validation logs and reports')
     
     args = parser.parse_args()
     
@@ -308,16 +267,17 @@ def main():
     validate_arguments(args)
     
     # Run validation
+    start_time = time.time()
     is_valid, valid_count, total_violations, biological_violations, distance_violations, valid_sequences, sequences, early_stopped = validate_barcodes(
-        input_file=args.input,
+        input_files=args.input,
         gc_min=args.gc_min,
         gc_max=args.gc_max,
         homopolymer_max=args.homopolymer_max,
         min_distance=args.min_distance,
         output_dir=args.output_dir,
-        skip_distance=args.skip_distance,
-        n_cpus=args.cpus
+        skip_distance=args.skip_distance
     )
+    duration = time.time() - start_time
     
     # Generate detailed report
     report_file = generate_validation_report(
@@ -334,14 +294,16 @@ def main():
         early_stopped=early_stopped
     )
     
+    # Log file locations and timing
+    logging.info(f"Total time: {duration:.2f} seconds")
+    logging.info(f"Log file: {log_filepath}")
+    logging.info(f"Report file: {report_file}")
+    
     # Final output
     if is_valid:
         print(f"✅ VALIDATION PASSED: All sequences meet quality standards")
     else:
         print(f"❌ VALIDATION FAILED: {total_violations} violations found")
-    
-    print(f"Log file: {log_filepath}")
-    print(f"Report file: {report_file}")
 
 if __name__ == "__main__":
     main() 
