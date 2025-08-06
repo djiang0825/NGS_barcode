@@ -22,12 +22,11 @@ Optional arguments:
 --homopolymer-max: maximum allowed homopolymer length (default: 2)
 --min-distance: minimum Hamming distance between sequences (default: 3)
 --cpus: number of CPU cores to use (default: all available)
---batches: number of batches to divide generation into (controls batch size; default: 10)    
 --paired: generate paired barcodes (doubles target count, splits into two files; default: False)
---seeds: seed sequence files (at most 2 files for paired mode, one per line as .txt; if not provided, will generate from scratch) 
+--seeds: seed sequence files (any number of files, one sequence per line as .txt; if not provided, will generate from scratch; default: None) 
 NOTE: seed sequences are not validated. If necessary, please run validate_barcodes.py first to ensure they pass all the filters.
---output-dir: output directory for barcodes and logs
---output-prefix: output filename prefix (adds .txt automatically)
+--output-dir: output directory for barcodes and logs (default: test)
+--output-prefix: output filename prefix (adds .txt automatically, default: barcodes)
 
 Required arguments:
 --count: number of barcodes to generate
@@ -44,10 +43,10 @@ from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor
 
 # Import utility functions
-from utils.dna_utils import decode_sequence, encode_sequence
+from utils.dna_utils import decode_sequence, encode_sequence, validate_arguments
 from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int, calculate_distance
 
-def check_candidate_distance(candidate, existing_pool, seed_pool, min_distance, target_length):
+def check_candidate_distance(candidate, existing_pool, seed_pool, min_distance):
     """Check if candidate sequence is sufficiently distant from all existing and seed sequences"""
     # Check against existing pool (all same length as candidate)
     for existing_seq in existing_pool:
@@ -101,17 +100,15 @@ def generate_random_sequences(count, length, gc_min, gc_max, homopolymer_max):
     
     return sequences
 
-def load_seed_sequences(seed_files, target_length):
+def load_seed_sequences(seed_files):
     """Load seed sequences from files and convert to integer arrays"""
     if not seed_files:
         return []
     
-    if len(seed_files) > 2:
-        raise ValueError(f"Maximum 2 seed files allowed, got {len(seed_files)}")
-    
     seed_sequences = []
     
     for seed_file in seed_files:
+        file_count = 0
         with open(seed_file, 'r') as f:
             for line_num, line in enumerate(f, 1):
                 seq = line.strip()
@@ -125,23 +122,42 @@ def load_seed_sequences(seed_files, target_length):
                 
                 seq_array = encode_sequence(seq)
                 seed_sequences.append(seq_array)
+                file_count += 1
+        
+        logging.info(f"Loaded {file_count} sequences from {seed_file}")
     
-    logging.info(f"Loaded {len(seed_sequences)} seed sequences")
+    # Calculate and log length distribution
+    if seed_sequences:
+        lengths = [len(seq) for seq in seed_sequences]
+        length_counts = {}
+        for length in lengths:
+            length_counts[length] = length_counts.get(length, 0) + 1
+        
+        if len(length_counts) == 1:
+            length_info = f"length {list(length_counts.keys())[0]}"
+        else:
+            length_breakdown = ", ".join([f"{count} at length {length}" for length, count in sorted(length_counts.items())])
+            length_info = f"mixed lengths: {length_breakdown}"
+        
+        logging.info(f"Total loaded: {len(seed_sequences)} seed sequences from {len(seed_files)} files ({length_info})")
+    else:
+        logging.info(f"Total loaded: 0 seed sequences from {len(seed_files)} files")
+    
     return seed_sequences
 
-def filter_chunk(candidates_chunk, existing_pool, seed_pool, min_distance, target_length):
+def filter_chunk(candidates_chunk, existing_pool, seed_pool, min_distance):
     """Filter a chunk of candidates (helper function for parallel processing)"""
     valid_candidates = []
     for candidate in candidates_chunk:
-        if check_candidate_distance(candidate, existing_pool, seed_pool, min_distance, target_length):
+        if check_candidate_distance(candidate, existing_pool, seed_pool, min_distance):
             valid_candidates.append(candidate)
     return valid_candidates
 
-def filter_candidates_parallel(candidates, existing_pool, seed_pool, min_distance, target_length, n_cpus):
+def filter_candidates_parallel(candidates, existing_pool, seed_pool, min_distance, n_cpus):
     """Parallel filtering of candidates using multiple processes"""
     # Skip parallelization for small batches (overhead not worth it)
     if len(candidates) < n_cpus * 10:
-        return filter_chunk(candidates, existing_pool, seed_pool, min_distance, target_length)
+        return filter_chunk(candidates, existing_pool, seed_pool, min_distance)
     
     # Split candidates into chunks for parallel processing
     chunk_size = max(100, len(candidates) // (n_cpus * 4))
@@ -150,7 +166,7 @@ def filter_candidates_parallel(candidates, existing_pool, seed_pool, min_distanc
     valid_candidates = []
     with ProcessPoolExecutor(max_workers=n_cpus) as executor:
         futures = [
-            executor.submit(filter_chunk, chunk, existing_pool, seed_pool, min_distance, target_length)
+            executor.submit(filter_chunk, chunk, existing_pool, seed_pool, min_distance)
             for chunk in chunks
         ]
         
@@ -160,14 +176,8 @@ def filter_candidates_parallel(candidates, existing_pool, seed_pool, min_distanc
     return valid_candidates
 
 def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, 
-                     n_cpus, n_batches, seed_pool=None):
+                     n_cpus, seed_pool=None):
     """Main function to generate diverse barcode set using iterative growth"""
-    # Calculate adaptive batch size based on number of batches
-    # Ensure minimum effective batch size for reasonable success rates
-    ideal_batch_size = target_count // n_batches
-    min_effective_batch_size = max(50, target_count // 20)  # At least 50, or 5% of target
-    batch_size = max(min_effective_batch_size, ideal_batch_size)
-    
     if seed_pool:
         logging.info(f"Starting barcode generation...")
         logging.info(f"Seed: {len(seed_pool)} sequences loaded from seed files")
@@ -175,12 +185,6 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
     else:
         logging.info(f"Starting barcode generation...")
         logging.info(f"Seed: None (building from scratch)")
-    
-    logging.info(f"Target count: {target_count} barcode sequences of length {length}")
-    logging.info(f"Filter 1 (within-sequence), GC content: {gc_min:.1%} - {gc_max:.1%}")
-    logging.info(f"Filter 2 (within-sequence), Max homopolymer: {homopolymer_max}")
-    logging.info(f"Filter 3 (between-sequence), Minimum distance: {min_distance}")
-    logging.info(f"CPUs: {n_cpus}, Initial batch size: {batch_size}")
     
     # Initialize pool with seeds if provided
     selected_pool = []
@@ -190,6 +194,20 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         # Adjust target count to account for seeds
         target_count += len(seed_pool)
         logging.info(f"Adjusted target count to {target_count} (including {len(seed_pool)} seed sequences)")
+    
+    # Calculate batch size after seed adjustment: cap at 10,000 for large datasets, use 10 batches for small datasets
+    if target_count <= 10000:
+        # Small datasets: use 10 batches
+        batch_size = max(50, target_count // 10)
+    else:
+        # Large datasets: cap at 10,000 per batch
+        batch_size = 10000
+    
+    logging.info(f"Target count: {target_count} barcode sequences of length {length}")
+    logging.info(f"Filter 1 (within-sequence), GC content: {gc_min:.1%} - {gc_max:.1%}")
+    logging.info(f"Filter 2 (within-sequence), Max homopolymer: {homopolymer_max}")
+    logging.info(f"Filter 3 (between-sequence), Minimum distance: {min_distance}")
+    logging.info(f"CPUs: {n_cpus}, Initial batch size: {batch_size}")
     
     start_time = time.time()
     batch_num = 0
@@ -207,7 +225,7 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         
         # Filter candidates for distance constraints (parallel)
         logging.info(f"Batch {batch_num}: (Step 2/3) Filtering candidates for distance ≥{min_distance} with existing pool...")
-        valid_candidates = filter_candidates_parallel(candidates, selected_pool, seed_pool or [], min_distance, length, n_cpus)
+        valid_candidates = filter_candidates_parallel(candidates, selected_pool, seed_pool or [], min_distance, n_cpus)
         
         # Within-batch distance checking
         newly_selected = []
@@ -257,28 +275,7 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
     # Convert back to DNA strings
     return [decode_sequence(seq) for seq in selected_pool]
 
-def validate_arguments(args):
-    """Validate command line arguments and raise ValueError if invalid"""
-    if args.gc_min < 0 or args.gc_max > 1 or args.gc_min >= args.gc_max:
-        raise ValueError("GC content bounds must be: 0 ≤ gc_min < gc_max ≤ 1")
-    
-    if args.homopolymer_max < 1:
-        raise ValueError("Maximum homopolymer length must be ≥ 1")
-    
-    if args.homopolymer_max >= args.length:
-        raise ValueError("Maximum homopolymer length must be < sequence length")
-    
-    if args.min_distance < 1:
-        raise ValueError("Minimum distance must be ≥ 1")
-    
-    if args.min_distance >= args.length:
-        raise ValueError("Minimum distance must be < sequence length")
-    
-    if args.count <= 0:
-        raise ValueError("Count must be > 0")
-    
-    if args.length <= 0:
-        raise ValueError("Length must be > 0")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -311,12 +308,10 @@ def main():
     # Performance arguments
     parser.add_argument('--cpus', type=int, default=mp.cpu_count(),
                        help='Number of CPU cores to use')
-    parser.add_argument('--batches', type=int, default=10,
-                       help='Number of batches to divide generation into (controls batch size)')
     
     # Seed arguments
     parser.add_argument('--seeds', nargs='+', type=str, default=[],
-                       help='Seed sequence files (at most 2 files for paired mode)')
+                       help='Seed sequence files (any number of files, one sequence per line)')
     
     # Output arguments
     parser.add_argument('--paired', action='store_true',
@@ -349,7 +344,7 @@ def main():
     # Load seed sequences if provided
     seed_pool = None
     if args.seeds:
-        seed_pool = load_seed_sequences(args.seeds, args.length)
+        seed_pool = load_seed_sequences(args.seeds)
     
     # Adjust target count for paired mode
     actual_target_count = args.count * 2 if args.paired else args.count
@@ -363,7 +358,6 @@ def main():
         homopolymer_max=args.homopolymer_max,
         min_distance=args.min_distance,
         n_cpus=args.cpus,
-        n_batches=args.batches,
         seed_pool=seed_pool
     )
     

@@ -3,3 +3,5 @@ barcode-env/
 src/utils/__pycache__/
 
 .DS_Store
+
+test_cases.txt
