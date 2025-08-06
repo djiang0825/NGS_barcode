@@ -2,17 +2,17 @@
 """
 generate_barcodes.py
 
-Efficiently generate large set of NGS barcodes from scratch using iterative growth algorithm (paired mode supported).
+Efficiently generate large set of NGS barcodes from scratch or from seed sequences using iterative growth algorithm (paired mode supported).
 
 Algorithm overview (guarantees no duplicate sequences and satisfies >= min distance constraints in final pool):
 
 1. Generate random sequences that pass within-sequence biological filters (i.e., GC content and homopolymer repeats)
-2. Filter candidates for >= min distance constraints (parallel)
-3. Within-batch >= min distance checking (sequential)
+2. Filter candidates to ensure >= min distance constraints compared to existing pool (parallel)
+3. Filter candidates to ensure >= min distance constraints within a batch (sequential)
 4. Add the verified batch to pool
 5. Repeat until target count is reached
 
-Input: none
+Input: none (or optionally, seed sequence files)
 
 Output: barcode list (one per line as .txt) and .log file
 
@@ -24,6 +24,8 @@ Optional arguments:
 --cpus: number of CPU cores to use (default: all available)
 --batches: number of batches to divide generation into (controls batch size; default: 10)    
 --paired: generate paired barcodes (doubles target count, splits into two files; default: False)
+--seeds: seed sequence files (at most 2 files for paired mode, one per line as .txt; if not provided, will generate from scratch) 
+NOTE: seed sequences are not validated. If necessary, please run validate_barcodes.py first to ensure they pass all the filters.
 --output-dir: output directory for barcodes and logs
 --output-prefix: output filename prefix (adds .txt automatically)
 
@@ -42,14 +44,21 @@ from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor
 
 # Import utility functions
-from utils.dna_utils import decode_sequence
-from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int
+from utils.dna_utils import decode_sequence, encode_sequence
+from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int, calculate_distance
 
-def check_candidate_distance(candidate, existing_pool, min_distance):
-    """Check if candidate sequence is sufficiently distant from all existing sequences"""
+def check_candidate_distance(candidate, existing_pool, seed_pool, min_distance, target_length):
+    """Check if candidate sequence is sufficiently distant from all existing and seed sequences"""
+    # Check against existing pool (all same length as candidate)
     for existing_seq in existing_pool:
         if hamming_distance_int(candidate, existing_seq, min_distance) < min_distance:
             return False
+    
+    # Check against seed pool (may have different lengths)
+    for seed_seq in seed_pool:
+        if calculate_distance(candidate, seed_seq, min_distance) < min_distance:
+            return False
+    
     return True
 
 def passes_biological_filters_int(seq_array, gc_min, gc_max, homopolymer_max):
@@ -58,7 +67,7 @@ def passes_biological_filters_int(seq_array, gc_min, gc_max, homopolymer_max):
     if not check_gc_content_int(seq_array, gc_min, gc_max):
         return False
     
-    # Check homopolymer runs
+    # Check homopolymer repeats
     if not check_homopolymer_int(seq_array, homopolymer_max):
         return False
     
@@ -92,19 +101,47 @@ def generate_random_sequences(count, length, gc_min, gc_max, homopolymer_max):
     
     return sequences
 
-def filter_chunk(candidates_chunk, existing_pool, min_distance):
+def load_seed_sequences(seed_files, target_length):
+    """Load seed sequences from files and convert to integer arrays"""
+    if not seed_files:
+        return []
+    
+    if len(seed_files) > 2:
+        raise ValueError(f"Maximum 2 seed files allowed, got {len(seed_files)}")
+    
+    seed_sequences = []
+    
+    for seed_file in seed_files:
+        with open(seed_file, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                seq = line.strip()
+                if not seq:  # Skip empty lines
+                    continue
+                
+                # Basic validation
+                if not all(base in 'ATGC' for base in seq):
+                    logging.warning(f"Seed file {seed_file}, line {line_num}: Invalid DNA sequence '{seq}', skipping")
+                    continue
+                
+                seq_array = encode_sequence(seq)
+                seed_sequences.append(seq_array)
+    
+    logging.info(f"Loaded {len(seed_sequences)} seed sequences")
+    return seed_sequences
+
+def filter_chunk(candidates_chunk, existing_pool, seed_pool, min_distance, target_length):
     """Filter a chunk of candidates (helper function for parallel processing)"""
     valid_candidates = []
     for candidate in candidates_chunk:
-        if check_candidate_distance(candidate, existing_pool, min_distance):
+        if check_candidate_distance(candidate, existing_pool, seed_pool, min_distance, target_length):
             valid_candidates.append(candidate)
     return valid_candidates
 
-def filter_candidates_parallel(candidates, existing_pool, min_distance, n_cpus):
+def filter_candidates_parallel(candidates, existing_pool, seed_pool, min_distance, target_length, n_cpus):
     """Parallel filtering of candidates using multiple processes"""
     # Skip parallelization for small batches (overhead not worth it)
     if len(candidates) < n_cpus * 10:
-        return filter_chunk(candidates, existing_pool, min_distance)
+        return filter_chunk(candidates, existing_pool, seed_pool, min_distance, target_length)
     
     # Split candidates into chunks for parallel processing
     chunk_size = max(100, len(candidates) // (n_cpus * 4))
@@ -113,7 +150,7 @@ def filter_candidates_parallel(candidates, existing_pool, min_distance, n_cpus):
     valid_candidates = []
     with ProcessPoolExecutor(max_workers=n_cpus) as executor:
         futures = [
-            executor.submit(filter_chunk, chunk, existing_pool, min_distance)
+            executor.submit(filter_chunk, chunk, existing_pool, seed_pool, min_distance, target_length)
             for chunk in chunks
         ]
         
@@ -123,7 +160,7 @@ def filter_candidates_parallel(candidates, existing_pool, min_distance, n_cpus):
     return valid_candidates
 
 def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, 
-                     n_cpus, n_batches):
+                     n_cpus, n_batches, seed_pool=None):
     """Main function to generate diverse barcode set using iterative growth"""
     # Calculate adaptive batch size based on number of batches
     # Ensure minimum effective batch size for reasonable success rates
@@ -131,16 +168,28 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
     min_effective_batch_size = max(50, target_count // 20)  # At least 50, or 5% of target
     batch_size = max(min_effective_batch_size, ideal_batch_size)
     
-    logging.info(f"Starting barcode generation...")
-    logging.info(f"Seed: None (building from scratch)")
+    if seed_pool:
+        logging.info(f"Starting barcode generation...")
+        logging.info(f"Seed: {len(seed_pool)} sequences loaded from seed files")
+        logging.warning("Building from seed lists without validation. Assuming that seed lists pass all the filters. Please run validate_barcodes.py to ensure this if necessary.")
+    else:
+        logging.info(f"Starting barcode generation...")
+        logging.info(f"Seed: None (building from scratch)")
+    
     logging.info(f"Target count: {target_count} barcode sequences of length {length}")
     logging.info(f"Filter 1 (within-sequence), GC content: {gc_min:.1%} - {gc_max:.1%}")
     logging.info(f"Filter 2 (within-sequence), Max homopolymer: {homopolymer_max}")
     logging.info(f"Filter 3 (between-sequence), Minimum distance: {min_distance}")
     logging.info(f"CPUs: {n_cpus}, Initial batch size: {batch_size}")
     
-    # Initialize empty pool
+    # Initialize pool with seeds if provided
     selected_pool = []
+    if seed_pool:
+        selected_pool = seed_pool.copy()
+        logging.info(f"Initialized pool with {len(selected_pool)} seed sequences")
+        # Adjust target count to account for seeds
+        target_count += len(seed_pool)
+        logging.info(f"Adjusted target count to {target_count} (including {len(seed_pool)} seed sequences)")
     
     start_time = time.time()
     batch_num = 0
@@ -158,7 +207,7 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         
         # Filter candidates for distance constraints (parallel)
         logging.info(f"Batch {batch_num}: (Step 2/3) Filtering candidates for distance ≥{min_distance} with existing pool...")
-        valid_candidates = filter_candidates_parallel(candidates, selected_pool, min_distance, n_cpus)
+        valid_candidates = filter_candidates_parallel(candidates, selected_pool, seed_pool or [], min_distance, length, n_cpus)
         
         # Within-batch distance checking
         newly_selected = []
@@ -265,6 +314,10 @@ def main():
     parser.add_argument('--batches', type=int, default=10,
                        help='Number of batches to divide generation into (controls batch size)')
     
+    # Seed arguments
+    parser.add_argument('--seeds', nargs='+', type=str, default=[],
+                       help='Seed sequence files (at most 2 files for paired mode)')
+    
     # Output arguments
     parser.add_argument('--paired', action='store_true',
                        help='Generate paired barcodes (doubles target count, splits into two files)')
@@ -293,6 +346,11 @@ def main():
     # Validate arguments
     validate_arguments(args)
     
+    # Load seed sequences if provided
+    seed_pool = None
+    if args.seeds:
+        seed_pool = load_seed_sequences(args.seeds, args.length)
+    
     # Adjust target count for paired mode
     actual_target_count = args.count * 2 if args.paired else args.count
     
@@ -305,7 +363,8 @@ def main():
         homopolymer_max=args.homopolymer_max,
         min_distance=args.min_distance,
         n_cpus=args.cpus,
-        n_batches=args.batches
+        n_batches=args.batches,
+        seed_pool=seed_pool
     )
     
     # Write output
