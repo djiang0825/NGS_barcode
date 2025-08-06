@@ -20,6 +20,26 @@ def decode_sequence(seq_array):
     """Convert integer array back to DNA string"""
     return ''.join(INT_TO_DNA[base] for base in seq_array)
 
+def calculate_hamming_bound(length, min_distance):
+    """Calculate theoretical maximum number of sequences for given length and minimum distance"""
+    import math
+    
+    # Hamming bound: M ≤ 4^n / V(n, t) where t = floor((d-1)/2)
+    # V(n, t) is the volume of a Hamming sphere of radius t
+    total_sequences = 4 ** length
+    t = (min_distance - 1) // 2
+    
+    # Calculate volume of Hamming sphere: V(n, t) = sum(C(n,i) * 3^i) for i=0 to t
+    sphere_volume = 0
+    for i in range(t + 1):
+        # C(n, i) = n! / (i! * (n-i)!)
+        combinations = math.comb(length, i)
+        sphere_volume += combinations * (3 ** i)  # 3 possible mutations per position
+    
+    # Hamming bound
+    max_sequences = total_sequences // sphere_volume
+    return max_sequences
+
 def validate_arguments(args):
     """Validate command line arguments and raise ValueError if invalid"""
     if args.gc_min < 0 or args.gc_max > 1 or args.gc_min >= args.gc_max:
@@ -43,5 +63,14 @@ def validate_arguments(args):
             raise ValueError("Length must be > 0")
     
     # Optional count validation (only if count attribute exists)
-    if hasattr(args, 'count') and args.count <= 0:
-        raise ValueError("Count must be > 0") 
+    if hasattr(args, 'count'):
+        if args.count <= 0:
+            raise ValueError("Count must be > 0")
+        
+        # Check against Hamming bound if we have length and min_distance
+        if hasattr(args, 'length') and hasattr(args, 'min_distance'):
+            max_possible = calculate_hamming_bound(args.length, args.min_distance)
+            if args.count > max_possible:
+                raise ValueError(f"Requested count ({args.count}) exceeds theoretical maximum ({max_possible}) "
+                               f"for length {args.length} with minimum distance {args.min_distance}. "
+                               f"This is based on the Hamming bound from coding theory.") 
