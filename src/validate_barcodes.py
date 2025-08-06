@@ -81,19 +81,28 @@ def validate_distance_constraints(sequences, min_distance):
     
     return False, pairs_checked
 
-def generate_pairs(n):
-    """Generator that yields all (i,j) pairs where i < j"""
+def generate_pair_chunk(start_idx, chunk_size, n):
+    """Generate a chunk of pairs lazily starting from start_idx"""
+    pairs_generated = 0
+    current_idx = 0
+    
     for i in range(n):
         for j in range(i + 1, n):
-            yield (i, j)
+            if current_idx >= start_idx:
+                if pairs_generated >= chunk_size:
+                    return
+                yield (i, j)
+                pairs_generated += 1
+            current_idx += 1
 
 def check_pair_chunk_worker(args):
     """Worker function for parallel distance validation"""
-    pairs_chunk, sequences, min_distance = args
+    start_idx, chunk_size, n, sequences, min_distance = args
     
     pairs_checked = 0
     
-    for i, j in pairs_chunk:
+    # Generate pairs lazily for this chunk
+    for i, j in generate_pair_chunk(start_idx, chunk_size, n):
         violation = check_distance_violation(sequences, i, j, min_distance)
         pairs_checked += 1
         
@@ -103,32 +112,21 @@ def check_pair_chunk_worker(args):
     return None, pairs_checked
 
 def validate_distance_constraints_parallel(sequences, min_distance, cpus=None):
-    """Parallel version of distance validation with early stopping"""
+    """Parallel version of distance validation with early stopping (memory-efficient)"""
     n = len(sequences)
     cpus = cpus or mp.cpu_count()
     
-    # Generate all pairs and chunk them for distribution
+    # Calculate chunk parameters
     total_pairs = n * (n - 1) // 2
     chunk_size = max(100000, total_pairs // (cpus * 10))
     
-    # Create chunks of pairs
-    pairs_generator = generate_pairs(n)
-    pair_chunks = []
-    current_chunk = []
-    
-    for pair in pairs_generator:
-        current_chunk.append(pair)
-        if len(current_chunk) >= chunk_size:
-            pair_chunks.append(current_chunk)
-            current_chunk = []
-    
-    # Add remaining pairs
-    if current_chunk:
-        pair_chunks.append(current_chunk)
+    # Generate chunk start indices (no pair data stored in memory)
+    chunk_starts = list(range(0, total_pairs, chunk_size))
     
     with ProcessPoolExecutor(max_workers=cpus) as executor:
-        futures = [executor.submit(check_pair_chunk_worker, (chunk, sequences, min_distance)) 
-                  for chunk in pair_chunks]
+        # Submit workers with lazy chunk parameters (not actual pair data)
+        futures = [executor.submit(check_pair_chunk_worker, (start_idx, chunk_size, n, sequences, min_distance)) 
+                  for start_idx in chunk_starts]
         
         # Process results with early stopping
         total_pairs_checked = 0
