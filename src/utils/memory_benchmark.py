@@ -15,6 +15,7 @@ import sys
 import time
 import os
 import logging
+import argparse
 from datetime import datetime
 
 
@@ -81,19 +82,30 @@ def benchmark_script(script_path, *args):
 
 def main():
     """Command-line interface for benchmarking scripts."""
-    if len(sys.argv) < 2:
-        print("Usage: python src/utils/memory_benchmark.py <script_path> [script_args...]")
-        print("Example: python src/utils/memory_benchmark.py src/validate_barcodes.py --input test/barcodes.txt")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Benchmark memory usage of Python scripts",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  python src/utils/memory_benchmark.py src/validate_barcodes.py --input test/barcodes.txt\n"
+               "  python src/utils/memory_benchmark.py --output-dir results src/generate_barcodes.py --count 100 --length 15"
+    )
     
-    script_path = sys.argv[1]
-    script_args = sys.argv[2:]
+    parser.add_argument('--output-dir', type=str, default='test',
+                       help='Output directory for benchmark logs (default: test)')
+    parser.add_argument('script_path', help='Path to the Python script to benchmark')
+    parser.add_argument('script_args', nargs=argparse.REMAINDER, help='Arguments to pass to the script')
+    
+    args = parser.parse_args()
+    
+    script_path = args.script_path
+    script_args = args.script_args
+    output_dir = args.output_dir
     
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_filename = f"memory_benchmark_{timestamp}.log"
-    log_filepath = os.path.join("test", log_filename)
-    os.makedirs("test", exist_ok=True)
+    log_filepath = os.path.join(output_dir, log_filename)
+    os.makedirs(output_dir, exist_ok=True)
     
     logging.basicConfig(
         level=logging.INFO,
