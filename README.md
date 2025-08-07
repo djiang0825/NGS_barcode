@@ -2,15 +2,6 @@
 
 A high-performance toolkit for generating and validating large-scale DNA barcodes for Next-Generation Sequencing (NGS) applications. 
 
-## Features
-
-- **Efficient Generation**: Iterative growth algorithm with early stopping and parallel processing
-- **Biological Filters**: GC content and homopolymer length constraints
-- **Distance Validation**: Hamming/Levenshtein distance checking with configurable thresholds
-- **Scalable Design**: Handles both small and large datasets with memory optimization
-- **Performance Monitoring**: Built-in memory benchmarking and detailed logging
-- **Flexible Input**: Support for seed sequences and variable-length barcodes
-
 ## Background
 
 ### Problem Statement
@@ -29,13 +20,13 @@ This makes brute-force approaches computationally prohibitive for large datasets
 
 ### This Toolkit and its Advantages
 
-Here, I introduce a toolkit for large-scale NGS barcode generation that utilizes modern computational optimization methods and incorporates novel algorithms I have developed. The toolkit is openly available to promote reproducibility and is specifically designed to run efficiently on minimal computing resources (e.g., standard laptops) for broad accessibility.
+Here, I introduce a toolkit for large-scale NGS barcode generation that **utilizes modern computational optimization methods and incorporates novel algorithms I have developed**. The toolkit is openly available to promote reproducibility and is specifically designed to run efficiently on **minimal computing resources (e.g., standard laptops)** for broad accessibility.
 
-In comparison with [TagGD](https://doi.org/10.1371/journal.pone.0057521)—the only other method reported to support barcode generation at the scale of up to 100,000 sequences—this toolkit generated 20,000 18-bp barcodes in just 1 minute using only 100 MB of RAM on a comparable 8-core laptop, as opposed to the 5 minutes reported in the TagGD abstract. Notably, for 100,000 18-bp barcodes, this toolkit completed the process in 15 minutes with 175 MB of RAM, which is significantly faster than the 1.5 hours reported in the TagGD paper (Table 1). Additionally, this toolkit can handle the generation of million-scale barcodes within reasonable time (i.e., hours) on standard compute setups (e.g., laptops), far exceeding the capacity of TagGD and other existing tools. More detailed benchmarking results are presented in a later section of this document. 
+In comparison with [TagGD](https://doi.org/10.1371/journal.pone.0057521)—the only other open-source software reported to support barcode generation at the scale of up to 100,000 sequences—this toolkit generated 20,000 18-bp barcodes in just **1 minute** using only 100 MB of RAM on a comparable 8-core laptop, as opposed to the **5 minutes** highlighted in the TagGD abstract. For 100,000 18-bp barcodes, this toolkit completed the process in **15 minutes** with 175 MB of RAM, which is significantly faster than the **1.5 hours** reported in Table 1 of the TagGD paper. 
 
-Additionally, this toolkit offers unique features not available in other tools: paired barcode generation for dual-indexing applications, extension from user-provided seed sequences, and a comprehensive validation script for quality assessment of existing barcode sets.
+Notably, this toolkit can handle the generation of **million-scale barcodes within reasonable time (i.e., hours) on standard compute setups (e.g., laptops), far exceeding the capacity of TagGD and other existing tools**. More detailed benchmarking results are presented in a later section of this document. 
 
-Together, these algorithmic advances, performance improvements, and extensive features make the toolkit ideally suited for researchers who require large-scale, high-quality barcode libraries for state-of-the-art NGS applications.
+Additionally, it offers unique features not available in other tools: **paired barcode generation for dual-indexing applications, extension from user-provided seed sequences, and a comprehensive validation script for quality assessment of existing barcode sets**.
 
 ## Default Filter Parameters
 
@@ -59,7 +50,7 @@ Leveraging established results from coding theory, one can calculate lower and u
 
 ### Gilbert-Varshamov Bound (Lower Bound)
 
-The Gilbert-Varshamov bound provides a lower bound guarantee that a code of at least this size exists. For DNA sequences, it states:
+The Gilbert-Varshamov bound provides a lower bound guarantee that a code of at least this size exists. For DNA sequences (i.e., alphabet of 4 characters: A, T, G, C), it states:
 
 $$M \geq \frac{4^n}{V(n,d-1)}$$
 
@@ -95,29 +86,27 @@ For typical barcode applications (6-16 bp, as longer sequences may introduce mol
 | 15          | 1.1M             | 23M                   |
 | 16          | 3.8M             | 88M                   |
 
-The bounds shown above consider only distance constraints. In practice, additional biological filters (GC content and homopolymer restrictions) further reduce the achievable library sizes. It is possible to estimate realistic bounds that satisfy all three constraints using simulation and sampling methods. A future version of this toolkit will include functionality to calculate these practical bounds for any given parameter set (stay tuned!).
+The bounds shown above consider only distance constraints. In practice, additional biological filters (GC content and homopolymer restrictions) further reduce the achievable library sizes. It is possible to estimate realistic bounds that satisfy all three constraints using simulation and sampling methods. **A future version of this toolkit will include functionality to calculate these practical bounds for any given parameter set (stay tuned!)**.
 
 ## Benchmarking Highlights
 
-Performance benchmarks on a MacBook Pro 2019 (16-core, 16GB RAM) using default parameters with target sizes near the Gilbert-Varshamov bound:
+Performance benchmarks on a MacBook Pro 2019 (8-core/16-thread, 16GB RAM) using default parameters with target sizes near the Gilbert-Varshamov bound:
 
-| Length (bp) | Target Size | Time (Peak Memory) |
-|-------------|-------------|-------------------|
-| 6           | 10          | 0.3 seconds       |
-| 8           | 100         | 0.4 seconds       |
-| 10          | 1,000       | 0.7 seconds       |
-| 12          | 10,000      | 28 seconds (90 MB) |
-| 14          | 100,000     | 16 minutes (170 MB) |
-| 16          | 1,000,000   | 10 hours (5 GB)    |
-
-These results demonstrate excellent scalability for small to medium libraries, with generation times remaining practical even for million-scale datasets. Memory usage scales efficiently, remaining under 200 MB for libraries up to 100,000 sequences.
+| Length (bp) | Target Size | Time (Peak Memory)    |
+|-------------|-------------|-----------------------|
+| 6           | 10          | 0.3 seconds (90 MB)   |
+| 8           | 100         | 0.4 seconds (90 MB)   |
+| 10          | 1,000       | 0.7 seconds (90 MB)   |
+| 12          | 10,000      | 28 seconds (90 MB)    |
+| 14          | 100,000     | 16 minutes (170 MB)   |
+| 16          | 1,000,000   | 14.5 hours (987 MB)   |
 
 ## Installation
 
 ### Requirements
 
 - Python 3.12+ (tested with Python 3.12)
-- Required packages (install via `pip install -r requirement.txt`):
+- Required packages (install via `pip install -r requirements.txt`):
   - numpy==2.2.6
   - numba==0.61.2 (for JIT compilation acceleration)
   - llvmlite==0.44.0
@@ -128,7 +117,7 @@ These results demonstrate excellent scalability for small to medium libraries, w
 ```bash
 git clone https://github.com/djiang0825/NGS_barcode.git
 cd NGS_barcode
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 
 ## Project Structure
@@ -143,7 +132,7 @@ Barcode/
 │       ├── filter_utils.py                      # Core filtering algorithms (Numba JIT)
 │       ├── generate_random_sequences.py         # Random sequence generator for validation testing
 │       └── memory_benchmark.py                  # Performance monitoring utility
-└── requirement.txt                              # Python dependencies
+└── requirements.txt                             # Python dependencies
 ```
 
 ## Scripts Overview

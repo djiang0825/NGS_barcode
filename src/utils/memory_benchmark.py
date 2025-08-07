@@ -36,8 +36,8 @@ def benchmark_script(script_path, *args):
     cmd = [sys.executable, script_path] + list(args)
     start_time = time.time()
     
-    # Start the subprocess - capture output to find log file location
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Start the subprocess; let it inherit stdout/stderr so it can print directly to terminal
+    process = subprocess.Popen(cmd)
     
     # Track memory usage of the subprocess
     peak_memory = 0
@@ -54,8 +54,9 @@ def benchmark_script(script_path, *args):
                 break
         
         # Wait for process to complete
-        stdout, stderr = process.communicate()
+        process.wait()
         return_code = process.returncode
+        stdout, stderr = None, None
         
     except Exception as e:
         logging.error(f"Error tracking memory: {e}")
@@ -134,25 +135,7 @@ def main():
         logging.info(f"Peak Memory: {result['peak_memory_mb']:.2f} MB")
         logging.info(f"Return Code: {result['return_code']}")
         logging.info("-" * 50)
-        
-        # Extract log file location from script output
-        script_log_file = None
-        
-        # Check both stdout and stderr for log file information
-        for output_stream in [result['stdout'], result['stderr']]:
-            if output_stream:
-                for line in output_stream.split('\n'):
-                    if 'Log file:' in line:
-                        script_log_file = line.split('Log file:')[-1].strip()
-                        break
-                if script_log_file:
-                    break
-        
-        if script_log_file:
-            logging.info(f"Script log file: {script_log_file}")
-        else:
-            logging.info("Script log file: Not found in output")
-        
+        # Note: the benchmarked script prints its own log file path to the terminal.
         logging.info(f"Benchmark log file: {log_filepath}")
     else:
         logging.error("Benchmark failed!")
