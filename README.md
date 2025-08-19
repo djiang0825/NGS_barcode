@@ -1,14 +1,44 @@
-# NGS Barcode Toolkit (v1)
+# Barcadia (v1.1)  
+*Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-A high-performance toolkit for generating and validating large-scale DNA barcodes for Next-Generation Sequencing (NGS) applications. 
+![version](https://img.shields.io/badge/version-1.1-blue)  
+![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
+![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
+
+---
+
+Barcadia is a **fast, memory-efficient, open-source toolkit** for generating and validating massive DNA barcode libraries for next-generation sequencing (NGS) applications. Designed for speed and scalability, it **outperforms existing tools** for both small- and large-scale operations.
+
+- **High performance & scalability** – Generates 100K barcodes in minutes and scales to 1 million in hours — far beyond the 100K ceiling of existing tools.  
+- **Memory & compute efficient** – Runs on standard laptops with minimal resources (under 1 GB RAM for generating 1M barcodes).  
+- **Extended functionality** – Supports paired barcode generation for dual-indexing, extension from seed lists, and validation of existing barcode sets.  
+
+Barcadia makes it easy to design small or large NGS barcode sets that are optimized for **robust performance in high-throughput sequencing workflows**.   
+
+## Table of Contents
+- [Background](#background)
+  - [Problem Statement](#problem-statement)
+  - [Existing Methods and their Limitations](#existing-methods-and-their-limitations)
+  - [This Toolkit and its Advantages](#this-toolkit-and-its-advantages)
+- [Default Filter Parameters](#default-filter-parameters)
+- [Theoretical Bounds](#theoretical-bounds)
+- [Benchmarking Highlights](#benchmarking-highlights)
+- [Installation](#installation)
+  - [Requirements](#requirements)
+  - [Setup](#setup)
+- [Project Structure](#project-structure)
+- [Scripts Overview](#scripts-overview)
+  - [Main Scripts](#main-scripts-user-facing)
+  - [Utility Scripts](#utility-scripts)
+- [Additional Utilities](#additional-utilities)
 
 ## Background
 
 ### Problem Statement
 
-Next-generation sequencing (NGS) is a high-throughput method that enables millions of DNA fragments to be sequenced in parallel, serving as the core technology for decoding genomes across all living organisms. In this process, researchers use DNA barcodes to uniquely label and track individual biomolecules. Common examples include multiplex sample indexes and unique molecular identifiers (UMIs). 
+**Next-generation sequencing (NGS) is a high-throughput method that enables millions of DNA fragments to be sequenced in parallel, serving as the core technology for decoding genomes across all living organisms**. In this process, researchers use DNA barcodes to uniquely label and track individual biomolecules. Common examples include multiplex sample indexes and unique molecular identifiers (UMIs). 
 
-The practical utility of a DNA barcode library depends on controlling key features: **GC content** (the percentage of G and C nucleotides), **homopolymer repeats** (the length of the longest stretch of identical nucleotides), and **edit distance** (the measure of dissimilarity among sequences). GC content and homopolymer repeats are within-sequence criteria that ensure molecular stability during sequencing and are computationally inexpensive to evaluate. In contrast, edit distance is a between-sequence constraint that provides error tolerance during analysis, but is computationally demanding to assess for large datasets.
+The practical utility of a DNA barcode library depends on controlling key features: **GC content** (the percentage of G and C nucleotides), **homopolymer repeats** (the length of the longest stretch of identical nucleotides), and **edit distance** (the measure of dissimilarity among sequences). GC content and homopolymer repeats are **within-sequence** criteria that ensure molecular stability during sequencing and are computationally inexpensive to evaluate. **In contrast, edit distance is a between-sequence constraint that provides error tolerance during analysis, but is computationally demanding to assess for large datasets**.
 
 ### Existing Methods and their Limitations
 
@@ -16,21 +46,21 @@ For a set of n sequences, the number of pairwise distance comparisons grows quad
 
 $$\binom{n}{2} = \frac{n(n-1)}{2}$$
 
-This makes brute-force approaches computationally prohibitive for large datasets. Apart from the approach described by [Lyons et al. (2017)](https://www.nature.com/articles/s41598-017-12825-2), existing tools are not built to accommodate large-scale barcode library design (≥100K sequences). Lyons et al. circumvented computational limitations using a probabilistic Markov chain model; however, their resulting barcode sets are no longer accessible (invalid URLs in the paper), and the underlying code was not released (likely due to proprietary restrictions). 
+**This makes brute-force approaches computationally prohibitive for large datasets**. Apart from the approach described by [Lyons et al. (2017)](https://www.nature.com/articles/s41598-017-12825-2), existing tools are not built to accommodate large-scale barcode library design (≥100K sequences). Lyons et al. circumvented computational limitations using a probabilistic Markov chain model; however, their resulting barcode sets are no longer accessible (invalid URLs in the paper), and the underlying code was not released (likely due to proprietary restrictions). 
 
 ### This Toolkit and its Advantages
 
-Here, I introduce a toolkit for large-scale NGS barcode generation that **utilizes modern computational optimization methods and incorporates novel algorithms I have developed**. The toolkit is openly available to promote reproducibility and is specifically designed to run efficiently on **minimal computing resources (e.g., standard laptops)** for broad accessibility.
+**Here, I introduce Barcadia, a toolkit for efficient large-scale NGS barcode generation that integrates modern computational optimization with novel distance-constrained algorithms I developed to deliver best-in-class scalability and speed**. The software is openly available to promote reproducibility and is designed to run efficiently on minimal computing resources (e.g., standard laptops), ensuring broad accessibility.
 
-In comparison with [TagGD](https://doi.org/10.1371/journal.pone.0057521)—the only other open-source software reported to support barcode generation at the scale of up to 100,000 sequences—this toolkit generated 20,000 18-bp barcodes in just **1 minute** using only 100 MB of RAM on a comparable 8-core laptop, as opposed to the **5 minutes** highlighted in the TagGD abstract. For 100,000 18-bp barcodes, this toolkit completed the process in **15 minutes** with 175 MB of RAM, which is significantly faster than the **1.5 hours** reported in Table 1 of the TagGD paper. 
+In comparison with [TagGD](https://doi.org/10.1371/journal.pone.0057521)—the only other open-source software reported to support barcode generation at the scale of up to 100,000 sequences—Barcadia generated 20,000 18-bp barcodes in just **1 minute** using only 100 MB of RAM on a comparable 8-core laptop, as opposed to the **5 minutes** highlighted in the TagGD abstract. For 100,000 18-bp barcodes, Barcadia completed the process in **15 minutes** with 175 MB of RAM, which is significantly faster than the **1.5 hours** reported in Table 1 of the TagGD paper. 
 
-Notably, this toolkit can handle the generation of **million-scale barcodes within reasonable time (i.e., hours) on standard compute setups (e.g., laptops), far exceeding the capacity of TagGD and other existing tools**. More detailed benchmarking results are presented in a later section of this document. 
+**Notably, Barcadia can handle the generation of million-scale barcodes within reasonable time (i.e., hours) on standard compute setups (e.g., laptops), far exceeding the capacity of TagGD and other existing tools**. More detailed benchmarking results are presented in a later section of this document. 
 
-Additionally, it offers unique features not available in other tools: **paired barcode generation for dual-indexing applications, extension from user-provided seed sequences, and a comprehensive validation script for quality assessment of existing barcode sets**.
+**Additionally, it offers unique features not available in other tools**: paired barcode generation for dual-indexing applications, extension from user-provided seed sequences, and a comprehensive validation script for quality assessment of existing barcode sets.
 
 ## Default Filter Parameters
 
-This toolkit uses carefully chosen default parameters that balance biological stability with computational efficiency (users can configure these based on their specific needs):
+Barcadia uses carefully chosen default parameters that **optimize synthetic stability and sequencing reliability** in NGS workflows. Users can configure these based on their specific needs.
 
 ### GC Content: 40-60%
 - **Rationale**: Sequences with extreme GC content (very low or very high) can form secondary structures and exhibit poor amplification efficiency during PCR
@@ -46,7 +76,7 @@ This toolkit uses carefully chosen default parameters that balance biological st
 
 ## Theoretical Bounds
 
-Leveraging established results from coding theory, one can calculate lower and upper bounds on the number of valid barcode sequences under specified edit distance constraints, assuming equal-length barcodes and applying the Hamming distance metric.
+Leveraging established results from coding theory, **one can calculate lower and upper bounds on the number of valid barcode sequences under specified edit distance constraints**, assuming equal-length barcodes and applying the Hamming distance metric, which counts the base-pair mismatches.
 
 ### Gilbert-Varshamov Bound (Lower Bound)
 
@@ -68,12 +98,14 @@ where `t = ⌊(d-1)/2⌋` and `V(n,t)` is the volume of a Hamming sphere of radi
 
 $$V(n,t) = \sum_{i=0}^{t} \binom{n}{i} \cdot 3^i$$
 
-As one exhausts the sequence space in search of valid barcodes that satisfy the distance constraint for all members of the set, the closer the target size approaches the theoretical upper bound, the longer the search will take. In particular, a significant—often exponential—slowdown can be expected once the target size surpasses the Gilbert-Varshamov (GV) bound.
+**As the sequence space is exhausted in search of valid barcodes, approaching the theoretical upper bound causes the search to slow down progressively**. In particular, a significant—often exponential—slowdown can be expected once the target size surpasses the Gilbert-Varshamov (GV) bound.
 
 For typical barcode applications (6-16 bp, as longer sequences may introduce molecular complexity) using the default minimum distance of 3, the theoretical bounds are summarized below:
 
+<div align="center">
+
 | Length (bp) | GV Bound (Lower) | Hamming Bound (Upper) |
-|-------------|------------------|-----------------------|
+|:-----------:|:----------------:|:---------------------:|
 | 6           | 26               | 215                   |
 | 7           | 77               | 744                   |
 | 8           | 236              | 2.6K                  |
@@ -86,20 +118,26 @@ For typical barcode applications (6-16 bp, as longer sequences may introduce mol
 | 15          | 1.1M             | 23M                   |
 | 16          | 3.8M             | 88M                   |
 
-The bounds shown above consider only distance constraints. In practice, additional biological filters (GC content and homopolymer restrictions) further reduce the achievable library sizes. It is possible to estimate realistic bounds that satisfy all three constraints using simulation and sampling methods. **A future version of this toolkit will include functionality to calculate these practical bounds for any given parameter set (stay tuned!)**.
+</div>
+
+The bounds shown above consider **only distance constraints**. In practice, additional biological filters (GC content and homopolymer restrictions) further reduce the achievable library sizes. It is possible to estimate realistic bounds that **satisfy all three constraints** using simulation and sampling methods. **A future version of Barcadia will include functionality to calculate these practical bounds for any given parameter set (stay tuned!)**.
 
 ## Benchmarking Highlights
 
-Performance benchmarks on a MacBook Pro 2019 (8-core/16-thread, 16GB RAM) using default parameters with target sizes near the Gilbert-Varshamov bound:
+Below are performance benchmarks on a MacBook Pro 2019 (8-core, 16GB RAM) using default parameters with target sizes near the Gilbert-Varshamov bound:
+
+<div align="center">
 
 | Length (bp) | Target Size | Time (Peak Memory)    |
-|-------------|-------------|-----------------------|
+|:-----------:|:-----------:|:---------------------:|
 | 6           | 10          | 0.3 seconds (90 MB)   |
 | 8           | 100         | 0.4 seconds (90 MB)   |
 | 10          | 1,000       | 0.7 seconds (90 MB)   |
 | 12          | 10,000      | 28 seconds (90 MB)    |
 | 14          | 100,000     | 16 minutes (170 MB)   |
 | 16          | 1,000,000   | 14.5 hours (987 MB)   |
+
+</div>
 
 ## Installation
 
@@ -137,7 +175,7 @@ Barcode/
 
 ## Scripts Overview
 
-### Main Scripts (User-Facing)
+### Main Scripts
 
 #### 1. `generate_barcodes.py` - Barcode Generation
 
@@ -189,11 +227,6 @@ python src/generate_barcodes.py --count 1000 --length 12 \
 - `{prefix}.txt` or `{prefix}_paired1.txt` & `{prefix}_paired2.txt`: Generated barcodes
 - `generate_barcode_{timestamp}.log`: Detailed generation log
 
-**Functions to add**:
-- More elegant handling of paired output generation when paired seeds are detected
-- Validation of seed sequences 
-- Progress saving for really large target (>100K)
-
 ---
 
 #### 2. `validate_barcodes.py` - Barcode Validation
@@ -240,9 +273,6 @@ python src/validate_barcodes.py --input barcodes.txt --skip-distance
 **Output Files**:
 - `validation_report_{timestamp}.txt`: Detailed validation report
 - `validate_barcode_{timestamp}.log`: Validation process log
-
-**Functions to add**:
-- Progress saving for really large input (i.e., when parallel processing is triggered)
 
 ---
 
