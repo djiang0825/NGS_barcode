@@ -2,15 +2,21 @@
 """
 generate_barcodes.py
 
-Efficiently generate large set of NGS barcodes from scratch or from seed sequences using iterative growth algorithm (paired mode supported).
+Efficiently generate large set of NGS barcodes from scratch or from seed sequences using optimized iterative growth algorithm (paired mode supported).
 
 Algorithm overview (guarantees no duplicate sequences and satisfies >= min distance constraints in final pool):
 
 1. Load seed sequence files as existing pool and report length distribution (will generate from scratch if no seeds are provided)
 2. Generate random sequences that pass within-sequence biological filters (i.e., GC content and homopolymer repeats)
-3. Filter candidates to ensure >= min distance constraints compared to existing pool (parallel)
-4. Verify candidates to ensure >= min distance constraints within a batch (sequential)
-5. Add the verified batch to pool, repeat until target count is reached
+3. Two-step distance filtering with intelligent method selection:
+   3a. Filter candidates against existing pool (parallel processing)
+   3b. Filter remaining candidates against each other within the current batch (sequential with early stopping)
+   Method selection (applies to both steps, decided once per generation):
+   - Small datasets (<10K sequences): Pairwise distance checking
+   - Large datasets (≥10K sequences): Choose between neighbor enumeration vs pairwise based on efficiency
+     * Neighbor enumeration: when (target_count × neighbors_per_seq) < (pairwise_operations × 0.8)
+     * Pairwise distance checking: otherwise
+4. Add the verified batch to pool, repeat until target count is reached
 
 Input: none (or optionally, seed sequence files or paired seed files)
 
@@ -48,21 +54,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 # Import utility functions
 from utils.dna_utils import decode_sequence, encode_sequence, validate_arguments
-from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int, calculate_distance
-
-def check_candidate_distance(candidate, existing_pool, seed_pool, min_distance):
-    """Check if candidate sequence is sufficiently distant from all existing and seed sequences"""
-    # Check against existing pool (all same length as candidate)
-    for existing_seq in existing_pool:
-        if hamming_distance_int(candidate, existing_seq, min_distance) < min_distance:
-            return False
-    
-    # Check against seed pool (may have different lengths)
-    for seed_seq in seed_pool:
-        if calculate_distance(candidate, seed_seq, min_distance) < min_distance:
-            return False
-    
-    return True
+from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int, calculate_distance, calculate_neighbor_count, generate_hamming_neighbors
 
 def passes_biological_filters_int(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological quality filters (works with integer arrays)"""
@@ -104,80 +96,103 @@ def generate_random_sequences(count, length, gc_min, gc_max, homopolymer_max):
     
     return sequences
 
-def load_seed_sequences(seed_files):
-    """Load seed sequences from files and convert to integer arrays"""
-    if not seed_files:
-        return []
+def should_use_neighbor_enumeration(target_count, sequence_length, min_distance, seed_pool):
+    """Decide whether to use neighbor enumeration for the entire generation process"""
+    # Rule 1: Only for large targets
+    if target_count < 10000:
+        logging.info(f"Small target count ({target_count} < 10K), using pairwise distance checking")
+        return False
     
-    seed_sequences = []
+    # Rule 2: Only for equal-length sequences (check seeds match target length)
+    if seed_pool:
+        seed_lengths = [len(seq) for seq in seed_pool]
+        # Check if any seed length differs from the target sequence length
+        if any(seed_len != sequence_length for seed_len in seed_lengths):
+            logging.info(f"Seed lengths don't match target length {sequence_length}, using pairwise distance checking")
+            return False
     
-    for seed_file in seed_files:
-        file_count = 0
-        with open(seed_file, 'r') as f:
-            for line_num, line in enumerate(f, 1):
-                seq = line.strip()
-                if not seq:  # Skip empty lines
-                    continue
-                
-                # Basic validation
-                if not all(base in 'ATGC' for base in seq):
-                    logging.warning(f"Seed file {seed_file}, line {line_num}: Invalid DNA sequence '{seq}', skipping")
-                    continue
-                
-                seq_array = encode_sequence(seq)
-                seed_sequences.append(seq_array)
-                file_count += 1
-        
-        logging.info(f"Loaded {file_count} sequences from {seed_file}")
+    # Rule 3: Calculate if neighbor enumeration is better for the whole dataset
+    neighbors_per_seq = calculate_neighbor_count(sequence_length, min_distance - 1)
     
-    # Calculate and log length distribution
-    if seed_sequences:
-        lengths = [len(seq) for seq in seed_sequences]
-        length_counts = {}
-        for length in lengths:
-            length_counts[length] = length_counts.get(length, 0) + 1
-        
-        if len(length_counts) == 1:
-            length_info = f"length {list(length_counts.keys())[0]}"
-        else:
-            length_breakdown = ", ".join([f"{count} at length {length}" for length, count in sorted(length_counts.items())])
-            length_info = f"mixed lengths: {length_breakdown}"
-        
-        logging.info(f"Total loaded: {len(seed_sequences)} seed sequences from {len(seed_files)} files ({length_info})")
+    # Estimate total operations for full dataset
+    avg_pool_size = target_count // 2  # Average pool size during generation
+    neighbor_ops_total = target_count * neighbors_per_seq
+    pairwise_ops_total = target_count * avg_pool_size
+    
+    if neighbor_ops_total < pairwise_ops_total * 0.8:  # 20% buffer
+        logging.info(f"Using neighbor enumeration for entire generation: {neighbor_ops_total:,} operations vs {pairwise_ops_total:,} pairwise (theoretically for the whole set)")
+        return True
     else:
-        logging.info(f"Total loaded: 0 seed sequences from {len(seed_files)} files")
-    
-    return seed_sequences
+        logging.info(f"Using pairwise distance checking for entire generation: neighbor enumeration would require as many operations as pairwise (theoretically for the whole set)")
+        return False
 
-def filter_chunk(candidates_chunk, existing_pool, seed_pool, min_distance):
+def filter_chunk(candidates_chunk, existing_pool, min_distance):
     """Filter a chunk of candidates (helper function for parallel processing)"""
     valid_candidates = []
     for candidate in candidates_chunk:
-        if check_candidate_distance(candidate, existing_pool, seed_pool, min_distance):
+        # Check if candidate is sufficiently distant from all existing sequences
+        is_valid = True
+        for existing_seq in existing_pool:
+            if calculate_distance(candidate, existing_seq, min_distance) < min_distance:
+                is_valid = False
+                break
+        
+        if is_valid:
             valid_candidates.append(candidate)
     return valid_candidates
 
-def filter_candidates_parallel(candidates, existing_pool, seed_pool, min_distance, n_cpus):
-    """Parallel filtering of candidates using multiple processes"""
-    # Skip parallelization for small batches (overhead not worth it)
-    if len(candidates) < n_cpus * 10:
-        return filter_chunk(candidates, existing_pool, seed_pool, min_distance)
+def filter_candidates_neighbor_enum(candidates, existing_pool, min_distance):
+    """Filter candidates using neighbor enumeration for equal-length sequences"""
+    if not candidates:
+        return []
     
-    # Split candidates into chunks for parallel processing
-    chunk_size = max(100, len(candidates) // (n_cpus * 4))
-    chunks = [candidates[i:i+chunk_size] for i in range(0, len(candidates), chunk_size)]
+    # Convert existing pool to hash set for O(1) lookup
+    # Note: This function is only called when all sequences are guaranteed to be the same length
+    existing_set = set(tuple(seq) for seq in existing_pool)
     
     valid_candidates = []
-    with ProcessPoolExecutor(max_workers=n_cpus) as executor:
-        futures = [
-            executor.submit(filter_chunk, chunk, existing_pool, seed_pool, min_distance)
-            for chunk in chunks
-        ]
+    for candidate in candidates:
+        seq_array = list(candidate)  # Make mutable copy for neighbor generation
         
-        for future in futures:
-            valid_candidates.extend(future.result())
+        # Generate all neighbors within min_distance-1 and check for collisions
+        is_valid = True
+        for neighbor in generate_hamming_neighbors(seq_array, min_distance - 1):
+            if neighbor in existing_set:
+                is_valid = False
+                break
+        
+        if is_valid:
+            valid_candidates.append(candidate)
     
     return valid_candidates
+
+def filter_candidates_parallel(candidates, existing_pool, min_distance, n_cpus, use_neighbor_enum=False):
+    """Enhanced filtering with simple method selection"""
+    if not candidates:
+        return []
+    
+    if use_neighbor_enum:
+        # Use neighbor enumeration (no parallelization needed - it's fast enough)
+        return filter_candidates_neighbor_enum(candidates, existing_pool, min_distance)
+    else:
+        # Use original pairwise approach with parallelization
+        if len(candidates) < n_cpus * 10:
+            return filter_chunk(candidates, existing_pool, min_distance)
+        
+        chunk_size = max(100, len(candidates) // (n_cpus * 4))
+        chunks = [candidates[i:i+chunk_size] for i in range(0, len(candidates), chunk_size)]
+        
+        valid_candidates = []
+        with ProcessPoolExecutor(max_workers=n_cpus) as executor:
+            futures = [
+                executor.submit(filter_chunk, chunk, existing_pool, min_distance)
+                for chunk in chunks
+            ]
+            
+            for future in futures:
+                valid_candidates.extend(future.result())
+        
+        return valid_candidates
 
 def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, 
                      n_cpus, seed_pool=None):
@@ -198,6 +213,9 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         # Adjust target count to account for seeds
         target_count += len(seed_pool)
         logging.info(f"Adjusted target count to {target_count} (including {len(seed_pool)} seed sequences)")
+    
+    # Make one global decision about using neighbor enumeration
+    use_neighbor_enum = should_use_neighbor_enumeration(target_count, length, min_distance, seed_pool or [])
     
     # Calculate batch size after seed adjustment: cap at 10,000 for large datasets, use 10 batches for small datasets
     if target_count <= 10000:
@@ -229,25 +247,49 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         
         # Filter candidates for distance constraints (parallel)
         logging.info(f"Batch {batch_num}: (Step 2/3) Filtering candidates for distance ≥{min_distance} with existing pool...")
-        valid_candidates = filter_candidates_parallel(candidates, selected_pool, seed_pool or [], min_distance, n_cpus)
+        valid_candidates = filter_candidates_parallel(candidates, selected_pool, min_distance, n_cpus, use_neighbor_enum)
         
         # Within-batch distance checking
         newly_selected = []
         sequences_needed = target_count - len(selected_pool)
         
         logging.info(f"Batch {batch_num}: (Step 3/3) Filtering candidates for distance ≥{min_distance} within a batch...")
-        for candidate in valid_candidates:
-            valid = True
-            # Check against sequences already accepted in THIS batch
-            for new_seq in newly_selected:
-                if hamming_distance_int(candidate, new_seq, min_distance) < min_distance:
-                    valid = False
-                    break
-            if valid:
-                newly_selected.append(candidate)
-                # Early stopping if we have enough sequences
-                if len(newly_selected) >= sequences_needed:
-                    break
+        
+        if use_neighbor_enum:
+            # Use neighbor enumeration approach
+            newly_selected_set = set()  # Hash set for O(1) neighbor lookups
+            
+            for candidate in valid_candidates:
+                seq_array = list(candidate)  # Make mutable copy for neighbor generation
+                
+                # Check if any neighbor of this candidate is already in newly_selected
+                collision_found = False
+                for neighbor in generate_hamming_neighbors(seq_array, min_distance - 1):
+                    if neighbor in newly_selected_set:
+                        collision_found = True
+                        break
+                
+                if not collision_found:
+                    newly_selected.append(candidate)
+                    newly_selected_set.add(tuple(candidate))
+                    
+                    # Early stopping if we have enough sequences
+                    if len(newly_selected) >= sequences_needed:
+                        break
+        else:
+            # Use original pairwise approach
+            for candidate in valid_candidates:
+                valid = True
+                # Check against sequences already accepted in THIS batch
+                for new_seq in newly_selected:
+                    if hamming_distance_int(candidate, new_seq, min_distance) < min_distance:
+                        valid = False
+                        break
+                if valid:
+                    newly_selected.append(candidate)
+                    # Early stopping if we have enough sequences
+                    if len(newly_selected) >= sequences_needed:
+                        break
         
         # Add the verified batch to pool
         selected_pool.extend(newly_selected)
@@ -278,6 +320,61 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
     
     # Convert back to DNA strings
     return [decode_sequence(seq) for seq in selected_pool]
+
+def write_barcode_outputs(barcodes, args, paired_seed1_pool, paired_seed2_pool, log_filepath):
+    """Write barcode outputs to files and log results"""
+    if args.paired:
+        # Treat no seeds as empty seed pools for unified logic
+        seed1_strings = [decode_sequence(seq) for seq in paired_seed1_pool] if paired_seed1_pool else []
+        seed2_strings = [decode_sequence(seq) for seq in paired_seed2_pool] if paired_seed2_pool else []
+        
+        # Calculate how many seeds to skip from barcodes list
+        num_seeds = len(seed1_strings) + len(seed2_strings)
+        new_barcodes = barcodes[num_seeds:] if num_seeds > 0 else barcodes
+        
+        # Split new barcodes into two equal groups
+        random.shuffle(new_barcodes)
+        split_point = len(new_barcodes) // 2
+        
+        # Write first paired file (seed1 + first half of new barcodes)
+        paired1_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired1.txt")
+        with open(paired1_filepath, 'w') as f:
+            for barcode in seed1_strings + new_barcodes[:split_point]:
+                f.write(barcode + '\n')
+        
+        # Write second paired file (seed2 + second half of new barcodes)
+        paired2_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired2.txt")
+        with open(paired2_filepath, 'w') as f:
+            for barcode in seed2_strings + new_barcodes[split_point:]:
+                f.write(barcode + '\n')
+        
+        # Log file locations with unified logic
+        logging.info(f"Paired files written to:")
+        if num_seeds > 0:
+            logging.info(f"  {paired1_filepath} ({len(seed1_strings)} seeds + {split_point} new = {len(seed1_strings) + split_point} total)")
+            logging.info(f"  {paired2_filepath} ({len(seed2_strings)} seeds + {len(new_barcodes) - split_point} new = {len(seed2_strings) + len(new_barcodes) - split_point} total)")
+            print(f"Successfully generated {len(barcodes)} barcodes (paired with seeds)")
+        else:
+            logging.info(f"  {paired1_filepath} ({split_point} barcodes)")
+            logging.info(f"  {paired2_filepath} ({len(new_barcodes) - split_point} barcodes)")
+            print(f"Successfully generated {len(barcodes)} barcodes (paired)")
+        logging.info(f"Log file: {log_filepath}")
+    else:
+        # Write single output file
+        output_filepath = os.path.join(args.output_dir, f"{args.output_prefix}.txt")
+        with open(output_filepath, 'w') as f:
+            for barcode in barcodes:
+                f.write(barcode + '\n')
+        
+        # Log file location
+        logging.info(f"Output written to: {output_filepath}")
+        logging.info(f"Log file: {log_filepath}")
+        
+        # Print result with seed info if applicable
+        if args.seeds:
+            print(f"Successfully generated {len(barcodes)} barcodes (with seeds)")
+        else:
+            print(f"Successfully generated {len(barcodes)} barcodes")
 
 def setup_argument_parser():
     """Setup and return the argument parser for barcode generation"""
@@ -367,6 +464,51 @@ def validate_seed_arguments(args):
         if args.paired_seed1 is not None or args.paired_seed2 is not None:
             raise ValueError("--paired-seed1 and --paired-seed2 can only be used with --paired mode")
 
+def load_seed_sequences(seed_files):
+    """Load seed sequences from files and convert to integer arrays"""
+    if not seed_files:
+        return []
+    
+    seed_sequences = []
+    
+    for seed_file in seed_files:
+        file_count = 0
+        with open(seed_file, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                seq = line.strip()
+                if not seq:  # Skip empty lines
+                    continue
+                
+                # Basic validation
+                if not all(base in 'ATGC' for base in seq):
+                    logging.warning(f"Seed file {seed_file}, line {line_num}: Invalid DNA sequence '{seq}', skipping")
+                    continue
+                
+                seq_array = encode_sequence(seq)
+                seed_sequences.append(seq_array)
+                file_count += 1
+        
+        logging.info(f"Loaded {file_count} sequences from {seed_file}")
+    
+    # Calculate and log length distribution
+    if seed_sequences:
+        lengths = [len(seq) for seq in seed_sequences]
+        length_counts = {}
+        for length in lengths:
+            length_counts[length] = length_counts.get(length, 0) + 1
+        
+        if len(length_counts) == 1:
+            length_info = f"length {list(length_counts.keys())[0]}"
+        else:
+            length_breakdown = ", ".join([f"{count} at length {length}" for length, count in sorted(length_counts.items())])
+            length_info = f"mixed lengths: {length_breakdown}"
+        
+        logging.info(f"Total loaded: {len(seed_sequences)} seed sequences from {len(seed_files)} files ({length_info})")
+    else:
+        logging.info(f"Total loaded: 0 seed sequences from {len(seed_files)} files")
+    
+    return seed_sequences
+
 def load_and_validate_seeds(args):
     """Load seed sequences and validate paired seeds. Returns (seed_pool, paired_seed1_pool, paired_seed2_pool)"""
     seed_pool = None
@@ -408,61 +550,6 @@ def load_and_validate_seeds(args):
         seed_pool = paired_seed1_pool + paired_seed2_pool
     
     return seed_pool, paired_seed1_pool, paired_seed2_pool
-
-def write_barcode_outputs(barcodes, args, paired_seed1_pool, paired_seed2_pool, log_filepath):
-    """Write barcode outputs to files and log results"""
-    if args.paired:
-        # Treat no seeds as empty seed pools for unified logic
-        seed1_strings = [decode_sequence(seq) for seq in paired_seed1_pool] if paired_seed1_pool else []
-        seed2_strings = [decode_sequence(seq) for seq in paired_seed2_pool] if paired_seed2_pool else []
-        
-        # Calculate how many seeds to skip from barcodes list
-        num_seeds = len(seed1_strings) + len(seed2_strings)
-        new_barcodes = barcodes[num_seeds:] if num_seeds > 0 else barcodes
-        
-        # Split new barcodes into two equal groups
-        random.shuffle(new_barcodes)
-        split_point = len(new_barcodes) // 2
-        
-        # Write first paired file (seed1 + first half of new barcodes)
-        paired1_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired1.txt")
-        with open(paired1_filepath, 'w') as f:
-            for barcode in seed1_strings + new_barcodes[:split_point]:
-                f.write(barcode + '\n')
-        
-        # Write second paired file (seed2 + second half of new barcodes)
-        paired2_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired2.txt")
-        with open(paired2_filepath, 'w') as f:
-            for barcode in seed2_strings + new_barcodes[split_point:]:
-                f.write(barcode + '\n')
-        
-        # Log file locations with unified logic
-        logging.info(f"Paired files written to:")
-        if num_seeds > 0:
-            logging.info(f"  {paired1_filepath} ({len(seed1_strings)} seeds + {split_point} new = {len(seed1_strings) + split_point} total)")
-            logging.info(f"  {paired2_filepath} ({len(seed2_strings)} seeds + {len(new_barcodes) - split_point} new = {len(seed2_strings) + len(new_barcodes) - split_point} total)")
-            print(f"Successfully generated {len(barcodes)} barcodes (paired with seeds)")
-        else:
-            logging.info(f"  {paired1_filepath} ({split_point} barcodes)")
-            logging.info(f"  {paired2_filepath} ({len(new_barcodes) - split_point} barcodes)")
-            print(f"Successfully generated {len(barcodes)} barcodes (paired)")
-        logging.info(f"Log file: {log_filepath}")
-    else:
-        # Write single output file
-        output_filepath = os.path.join(args.output_dir, f"{args.output_prefix}.txt")
-        with open(output_filepath, 'w') as f:
-            for barcode in barcodes:
-                f.write(barcode + '\n')
-        
-        # Log file location
-        logging.info(f"Output written to: {output_filepath}")
-        logging.info(f"Log file: {log_filepath}")
-        
-        # Print result with seed info if applicable
-        if args.seeds:
-            print(f"Successfully generated {len(barcodes)} barcodes (with seeds)")
-        else:
-            print(f"Successfully generated {len(barcodes)} barcodes")
 
 def main():
     parser = setup_argument_parser()

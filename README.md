@@ -1,7 +1,7 @@
-# Barcadia (v2)  
+# Barcadia (v2.1)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-2.0-blue)  
+![version](https://img.shields.io/badge/version-2.1-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -9,7 +9,7 @@
 
 Barcadia is a **fast, memory-efficient, open-source toolkit** for generating and validating massive DNA barcode libraries for next-generation sequencing (NGS) applications. Designed for speed and scalability, it **outperforms existing tools** for both small- and large-scale operations.
 
-- **High performance & scalability** – Generates 100K barcodes in minutes and scales to 1 million in hours — far beyond the 100K ceiling of existing tools.  
+- **High performance & scalability** – Generates 100K barcodes in minutes and 1M in under an hour, far exceeding the ~100K limit of existing tools.  
 - **Memory & compute efficient** – Runs on standard laptops with minimal resources (under 1 GB RAM for generating 1M barcodes).  
 - **Extended functionality** – Supports paired barcode generation for dual-indexing, extension from seed lists, and validation of existing barcode sets.  
 
@@ -53,9 +53,9 @@ $$\binom{n}{2} = \frac{n(n-1)}{2}$$
 
 **Here, I introduce Barcadia, a toolkit for efficient large-scale NGS barcode generation that integrates modern computational optimization with novel distance-constrained algorithms I developed to deliver best-in-class scalability and speed**. The software is openly available to promote reproducibility and is designed to run efficiently on minimal computing resources (e.g., standard laptops), ensuring broad accessibility.
 
-In comparison with [TagGD](https://doi.org/10.1371/journal.pone.0057521)—the only other open-source software reported to support barcode generation at the scale of up to 100,000 sequences—Barcadia generated 20,000 18-bp barcodes in just **1 minute** using only 100 MB of RAM on a comparable 8-core laptop, as opposed to the **5 minutes** highlighted in the TagGD abstract. For 100,000 18-bp barcodes, Barcadia completed the process in **15 minutes** with 175 MB of RAM, which is significantly faster than the **1.5 hours** reported in Table 1 of the TagGD paper. 
+In comparison with [TagGD](https://doi.org/10.1371/journal.pone.0057521)—the only other open-source software reported to support barcode generation at the scale of up to 100,000 sequences—Barcadia generated 20,000 18-bp barcodes in just **1 minute** using only 120 MB of RAM on a comparable 8-core laptop, as opposed to the **5 minutes** highlighted in the TagGD abstract. For 100,000 18-bp barcodes, Barcadia completed the process in **5 minutes** with 200 MB of RAM, which is significantly faster than the **1.5 hours** reported in Table 1 of the TagGD paper. 
 
-**Notably, Barcadia can handle the generation of million-scale barcodes within reasonable time (i.e., hours) on standard compute setups (e.g., laptops), far exceeding the capacity of TagGD and other existing tools**. More detailed benchmarking results are presented in a later section of this document. 
+**Notably, Barcadia can handle the generation of million-scale barcodes within reasonable time (i.e., within an hour) on standard compute setups (e.g., laptops), far exceeding the capacity of TagGD and other existing tools**. More detailed benchmarking results are presented in a later section of this document. 
 
 **Additionally, it offers unique features not available in other tools**: paired barcode generation for dual-indexing applications, extension from user-provided seed sequences, and a comprehensive validation script for quality assessment of existing barcode sets.
 
@@ -134,9 +134,9 @@ Below are performance benchmarks for **barcode generation** on a MacBook Pro 201
 | 6           | 10           | 0.3 seconds (90 MB)   |
 | 8           | 100          | 0.4 seconds (90 MB)   |
 | 10          | 1,000        | 0.7 seconds (90 MB)   |
-| 12          | 10,000       | 28 seconds (90 MB)    |
-| 14          | 100,000      | 16 minutes (170 MB)   |
-| 16          | 1,000,000    | 14.5 hours (987 MB)   |
+| 12          | 10,000       | 15 seconds (96 MB)    |
+| 14          | 100,000      | 3 minutes (171 MB)    |
+| 16          | 1,000,000    | 41 minutes (960 MB)   |
 
 </div>
 
@@ -150,7 +150,7 @@ Below are performance benchmarks for **barcode validation** on a MacBook Pro 201
 | 8           | 100          | 0.4 seconds (90 MB)   |
 | 10          | 1,000        | 0.7 seconds (90 MB)   |
 | 12          | 10,000       | 6.6 seconds (97 MB)   |
-| 14          | 100,000      | 1 minute (194 MB)     |
+| 14          | 100,000      | 1.5 minute (191 MB)   |
 | 16          | 1,000,000    | 21 mins (1177 MB)     |
 
 </div>
@@ -198,9 +198,11 @@ Barcode/
 **Purpose**: Generate diverse NGS barcodes from scratch or extend existing seed sequences using a novel iterative growth algorithm (paired mode supported).
 
 **Algorithm Overview**:
-1. Generate random sequence candidates passing biological filters (GC content, homopolymer length)
-2. Filter candidates passing minimum distance constraints compared to existing pool (parallel)
-3. Verify candidates passing distance constraints within each batch (sequential)
+1. Load seed sequence files as existing pool and report length distribution (will generate from scratch if no seeds are provided)
+2. Generate random sequence candidates passing biological filters (GC content, homopolymer length)
+3. **Two-step distance filtering with intelligent method selection**:
+   - **Step 1**: Filter candidates against existing pool (parallel processing) 
+   - **Step 2**: Filter remaining candidates against each other within the current batch (sequential with early stopping)
 4. Add verified batch to pool and repeat until target count reached
 
 **Key Features**:
@@ -215,6 +217,12 @@ Barcode/
   - Only accepts one file each and both must be specified
   - Validates that both files have the same number of sequences with all sequences being the same length within and across both files
   - Similar to `--seeds`, can accommodate differences in lengths between seed pool and newly-generated sequences (Hamming for equal/Levenshtein for mixed)
+- **Intelligent distance filtering method selection**:
+  - Small datasets (<10K sequences): Pairwise distance checking
+  - Large mixed-length datasets: Parallel pairwise distance checking (neighbor enumeration requires complex Levenshtein handling)
+  - Large equal-length datasets (≥10K sequences): Choose between neighbor enumeration vs pairwise based on efficiency
+    * Neighbor enumeration: when (target_count × neighbors_per_seq) < (pairwise_operations × 0.8)
+    * Pairwise distance checking: otherwise
 
 **Basic Usage**:
 ```bash
@@ -252,14 +260,14 @@ python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1
 - `--output-dir`: Output directory (default: test)
 - `--output-prefix`: Output filename prefix (default: barcodes)
 
+**Output Files**:
+- `{prefix}.txt` or `{prefix}_paired1.txt` & `{prefix}_paired2.txt`: Generated barcodes
+- `generate_barcode_{timestamp}.log`: Detailed generation log
+
 **Important Notes**:
 - **Seed sequences are not validated**: If using seed files (paired or unpaired), run `validate_barcodes.py` first to ensure they pass all filters
 - In paired mode with seeds, both `--paired-seed1` and `--paired-seed2` must be provided and have the same count/length
 - Seeds are preserved in the output files (paired or unpaired)
-
-**Output Files**:
-- `{prefix}.txt` or `{prefix}_paired1.txt` & `{prefix}_paired2.txt`: Generated barcodes
-- `generate_barcode_{timestamp}.log`: Detailed generation log
 
 ---
 
@@ -270,8 +278,10 @@ python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1
 **Algorithm Overview**:
 1. Load and parse input file(s) and report lengths distribution
 2. Check if sequences fail both biological filters (GC content, homopolymer checks)
-3. Validate distances efficiently based on dataset characteristics with early stopping on first violation (skipping allowed)
-4. Generate detailed validation report
+3. **Computational complexity-optimized distance validation**:
+   - **Method selection**: Automatically chooses optimal validation approach based on dataset characteristics
+   - **Early stopping**: Terminates on first violation found (prevents unnecessary computation)
+4. Generate detailed validation report with comprehensive violation details
 
 **Key Features**:
 - Supports multiple input files (automatically concatenated) with variable lengths
@@ -361,14 +371,22 @@ High-performance filtering algorithms with Numba JIT compilation:
 - GC content and homopolymer repeat filtering
 - Hamming distance for equal-length sequences with early stopping 
 - Levenshtein distance for variable-length sequences with early stopping
+- Neighbor enumeration for efficient distance constraint checking
 
 ## Changelog
+
+### Version 2.1
+- Implemented intelligent generation algorithm selection (neighbor enumeration vs pairwise) with significantly improved performance
+- Updated README with new benchmarking results for generation
+- Enhanced documentation and code organization
+
+---
 
 ### Version 2.0
 - Enhanced paired barcode generation with seed files (added `--paired-seed1`, `--paired-seed2`)
 - Implemented intelligent validation algorithm selection (neighbor enumeration vs pairwise) with significantly improved performance
+- Updated README with new benchmarking results for validation
 - Optimized progress logging and violation reporting for validation
-- Added validation benchmarking results in readme file
 - Implemented early-stopping optimization for Levenshtein distance calculation
 - Enhanced documentation and code organization
 

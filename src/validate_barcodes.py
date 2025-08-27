@@ -40,14 +40,13 @@ import argparse
 import logging
 import os
 import time
-import math
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
 # Import utility functions
 from utils.dna_utils import DNA_BASES, encode_sequence, decode_sequence, validate_arguments
-from utils.filter_utils import  check_gc_content_int, check_homopolymer_int, calculate_distance
+from utils.filter_utils import check_gc_content_int, check_homopolymer_int, calculate_distance, calculate_neighbor_count, generate_hamming_neighbors
 
 def validate_sequence_biological(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological filters and return all violations"""
@@ -212,38 +211,6 @@ def validate_distance_constraints_parallel(sequences, min_distance, cpus=None):
         
         # If no violations found, we checked all pairs
         return False, total_pairs_checked, None
-
-def calculate_neighbor_count(length, max_distance, alphabet_size=4):
-    """Calculate number of neighbors within max_distance for Hamming distance"""
-    total_neighbors = 0
-    substitutions_per_position = alphabet_size - 1  # 3 for DNA
-    
-    for dist in range(1, max_distance + 1):
-        combinations = math.comb(length, dist)
-        substitutions = substitutions_per_position ** dist
-        neighbors_at_dist = combinations * substitutions
-        total_neighbors += neighbors_at_dist
-    
-    return total_neighbors
-
-def generate_hamming_neighbors(seq_array, max_distance, current_distance=0):
-    """Generate all Hamming neighbors within max_distance of a sequence"""
-    if current_distance == max_distance:
-        yield tuple(seq_array)
-        return
-    
-    # Yield current sequence if distance > 0
-    if current_distance > 0:
-        yield tuple(seq_array)
-    
-    # Generate neighbors by substitution
-    for i in range(len(seq_array)):
-        original_base = seq_array[i]
-        for new_base in [0, 1, 2, 3]:  # A, T, G, C
-            if new_base != original_base:
-                seq_array[i] = new_base
-                yield from generate_hamming_neighbors(seq_array, max_distance, current_distance + 1)
-        seq_array[i] = original_base  # backtrack
 
 def validate_distance_constraints_neighbor_enumeration(sequences, min_distance):
     """Validate using neighbor enumeration - much faster for appropriate cases"""
