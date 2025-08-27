@@ -6,13 +6,13 @@ Efficiently generate large set of NGS barcodes from scratch or from seed sequenc
 
 Algorithm overview (guarantees no duplicate sequences and satisfies >= min distance constraints in final pool):
 
-1. Generate random sequences that pass within-sequence biological filters (i.e., GC content and homopolymer repeats)
-2. Filter candidates to ensure >= min distance constraints compared to existing pool (parallel)
-3. Filter candidates to ensure >= min distance constraints within a batch (sequential)
-4. Add the verified batch to pool
-5. Repeat until target count is reached
+1. Load seed sequence files as existing pool and report length distribution (will generate from scratch if no seeds are provided)
+2. Generate random sequences that pass within-sequence biological filters (i.e., GC content and homopolymer repeats)
+3. Filter candidates to ensure >= min distance constraints compared to existing pool (parallel)
+4. Verify candidates to ensure >= min distance constraints within a batch (sequential)
+5. Add the verified batch to pool, repeat until target count is reached
 
-Input: none (or optionally, seed sequence files)
+Input: none (or optionally, seed sequence files or paired seed files)
 
 Output: barcode list (one per line as .txt) and .log file
 
@@ -22,15 +22,18 @@ Optional arguments:
 --homopolymer-max: maximum allowed homopolymer length (default: 2)
 --min-distance: minimum Hamming distance between sequences (default: 3)
 --cpus: number of CPU cores to use (default: all available)
---paired: generate paired barcodes (doubles target count, splits into two files; default: False)
---seeds: seed sequence files (any number of files, one sequence per line as .txt; if not provided, will generate from scratch; default: None) 
-NOTE: seed sequences are not validated. If necessary, please run validate_barcodes.py first to ensure they pass all the filters.
+--seeds: seed sequence files (any number of files, one sequence per line as .txt; if not provided, will generate from scratch; incompatible with --paired mode; default: None) 
+--paired: generate paired barcodes (doubles target count, splits into two files; incompatible with --seeds; default: off)
+--paired-seed1: paired seed sequence file 1 (used only with --paired and --paired-seed2, only one file is accepted, all sequences must be same length and match count/length of --paired-seed2; default: None)
+--paired-seed2: paired seed sequence file 2 (used only with --paired and --paired-seed1, only one file is accepted, all sequences must be same length and match count/length of --paired-seed1; default: None)
 --output-dir: output directory for barcodes and logs (default: test)
 --output-prefix: output filename prefix (adds .txt automatically, default: barcodes)
 
 Required arguments:
 --count: number of barcodes to generate
 --length: length of each barcode sequence
+
+NOTE: seed sequences (paired or unpaired) are not validated against intended filters. If necessary, please run validate_barcodes.py first to ensure they pass all the filters.
 """
 
 import numpy as np
@@ -39,6 +42,7 @@ import logging
 import time
 import multiprocessing as mp
 import os
+import random
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor
 
@@ -275,9 +279,8 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
     # Convert back to DNA strings
     return [decode_sequence(seq) for seq in selected_pool]
 
-
-
-def main():
+def setup_argument_parser():
+    """Setup and return the argument parser for barcode generation"""
     parser = argparse.ArgumentParser(
         description="Generate diverse DNA barcodes from scratch",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -311,14 +314,22 @@ def main():
     
     # Seed arguments
     parser.add_argument('--seeds', nargs='+', type=str, default=[],
-                       help='Seed sequence files (any number of files, one sequence per line)')
+                       help='Seed sequence files (any number of files, one sequence per line) - incompatible with --paired mode')
     
-    # Output arguments
+    # Mode arguments
     parser.add_argument('--paired', action='store_true',
                        help='Generate paired barcodes (doubles target count, splits into two files)')
     
-    args = parser.parse_args()
+    # Paired seed arguments (for paired mode only)
+    parser.add_argument('--paired-seed1', type=str, default=None,
+                       help='Seed sequence file for first paired output (used only with --paired)')
+    parser.add_argument('--paired-seed2', type=str, default=None,
+                       help='Seed sequence file for second paired output (used only with --paired)')
     
+    return parser
+
+def setup_logging(args):
+    """Setup logging and create output directory. Returns log filepath."""
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
@@ -338,13 +349,131 @@ def main():
         ]
     )
     
-    # Validate arguments
-    validate_arguments(args)
-    
-    # Load seed sequences if provided
+    return log_filepath
+
+def validate_seed_arguments(args):
+    """Validate seed-related argument combinations"""
+    # Validate paired seed arguments
+    if args.paired:
+        # In paired mode, either both paired seeds or no seeds at all
+        paired_seeds_provided = (args.paired_seed1 is not None) or (args.paired_seed2 is not None)
+        if paired_seeds_provided:
+            if args.paired_seed1 is None or args.paired_seed2 is None:
+                raise ValueError("When using --paired with seeds, both --paired-seed1 and --paired-seed2 must be provided")
+        if args.seeds:
+            raise ValueError("--seeds argument is incompatible with --paired mode. Use --paired-seed1 and --paired-seed2 instead")
+    else:
+        # In non-paired mode, paired seed arguments should not be used
+        if args.paired_seed1 is not None or args.paired_seed2 is not None:
+            raise ValueError("--paired-seed1 and --paired-seed2 can only be used with --paired mode")
+
+def load_and_validate_seeds(args):
+    """Load seed sequences and validate paired seeds. Returns (seed_pool, paired_seed1_pool, paired_seed2_pool)"""
     seed_pool = None
+    paired_seed1_pool = None
+    paired_seed2_pool = None
+    
     if args.seeds:
         seed_pool = load_seed_sequences(args.seeds)
+    elif args.paired and args.paired_seed1 and args.paired_seed2:
+        # Load paired seeds separately and combine for generation
+        paired_seed1_pool = load_seed_sequences([args.paired_seed1])
+        paired_seed2_pool = load_seed_sequences([args.paired_seed2])
+        
+        # Check that paired seeds are truly paired (same count and all same length)
+        if paired_seed1_pool and paired_seed2_pool:
+            # Check sequence counts
+            if len(paired_seed1_pool) != len(paired_seed2_pool):
+                raise ValueError(f"Paired seed files must have the same number of sequences. "
+                               f"Seed1: {len(paired_seed1_pool)} sequences, Seed2: {len(paired_seed2_pool)} sequences")
+            
+            # Check that all sequences in both files are the same length
+            seed1_lengths = set(len(seq) for seq in paired_seed1_pool)
+            seed2_lengths = set(len(seq) for seq in paired_seed2_pool)
+            
+            # Both files must have only one unique length each
+            if len(seed1_lengths) != 1:
+                raise ValueError(f"All sequences in paired seed file 1 must be the same length. "
+                               f"Found lengths: {sorted(seed1_lengths)}")
+            if len(seed2_lengths) != 1:
+                raise ValueError(f"All sequences in paired seed file 2 must be the same length. "
+                               f"Found lengths: {sorted(seed2_lengths)}")
+            
+            # Both files must have the same length
+            if seed1_lengths != seed2_lengths:
+                raise ValueError(f"Paired seed files must have sequences of the same length. "
+                               f"Seed1 length: {list(seed1_lengths)[0]}, Seed2 length: {list(seed2_lengths)[0]}")
+        
+        # Combine both for generation pool
+        seed_pool = paired_seed1_pool + paired_seed2_pool
+    
+    return seed_pool, paired_seed1_pool, paired_seed2_pool
+
+def write_barcode_outputs(barcodes, args, paired_seed1_pool, paired_seed2_pool, log_filepath):
+    """Write barcode outputs to files and log results"""
+    if args.paired:
+        # Treat no seeds as empty seed pools for unified logic
+        seed1_strings = [decode_sequence(seq) for seq in paired_seed1_pool] if paired_seed1_pool else []
+        seed2_strings = [decode_sequence(seq) for seq in paired_seed2_pool] if paired_seed2_pool else []
+        
+        # Calculate how many seeds to skip from barcodes list
+        num_seeds = len(seed1_strings) + len(seed2_strings)
+        new_barcodes = barcodes[num_seeds:] if num_seeds > 0 else barcodes
+        
+        # Split new barcodes into two equal groups
+        random.shuffle(new_barcodes)
+        split_point = len(new_barcodes) // 2
+        
+        # Write first paired file (seed1 + first half of new barcodes)
+        paired1_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired1.txt")
+        with open(paired1_filepath, 'w') as f:
+            for barcode in seed1_strings + new_barcodes[:split_point]:
+                f.write(barcode + '\n')
+        
+        # Write second paired file (seed2 + second half of new barcodes)
+        paired2_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired2.txt")
+        with open(paired2_filepath, 'w') as f:
+            for barcode in seed2_strings + new_barcodes[split_point:]:
+                f.write(barcode + '\n')
+        
+        # Log file locations with unified logic
+        logging.info(f"Paired files written to:")
+        if num_seeds > 0:
+            logging.info(f"  {paired1_filepath} ({len(seed1_strings)} seeds + {split_point} new = {len(seed1_strings) + split_point} total)")
+            logging.info(f"  {paired2_filepath} ({len(seed2_strings)} seeds + {len(new_barcodes) - split_point} new = {len(seed2_strings) + len(new_barcodes) - split_point} total)")
+            print(f"Successfully generated {len(barcodes)} barcodes (paired with seeds)")
+        else:
+            logging.info(f"  {paired1_filepath} ({split_point} barcodes)")
+            logging.info(f"  {paired2_filepath} ({len(new_barcodes) - split_point} barcodes)")
+            print(f"Successfully generated {len(barcodes)} barcodes (paired)")
+        logging.info(f"Log file: {log_filepath}")
+    else:
+        # Write single output file
+        output_filepath = os.path.join(args.output_dir, f"{args.output_prefix}.txt")
+        with open(output_filepath, 'w') as f:
+            for barcode in barcodes:
+                f.write(barcode + '\n')
+        
+        # Log file location
+        logging.info(f"Output written to: {output_filepath}")
+        logging.info(f"Log file: {log_filepath}")
+        
+        # Print result with seed info if applicable
+        if args.seeds:
+            print(f"Successfully generated {len(barcodes)} barcodes (with seeds)")
+        else:
+            print(f"Successfully generated {len(barcodes)} barcodes")
+
+def main():
+    parser = setup_argument_parser()
+    args = parser.parse_args()
+    
+    log_filepath = setup_logging(args)
+    validate_seed_arguments(args)
+    validate_arguments(args)
+    
+    # Load and validate seed sequences
+    seed_pool, paired_seed1_pool, paired_seed2_pool = load_and_validate_seeds(args)
     
     # Adjust target count for paired mode
     actual_target_count = args.count * 2 if args.paired else args.count
@@ -361,44 +490,8 @@ def main():
         seed_pool=seed_pool
     )
     
-    # Write output
-    if args.paired:
-        # Split barcodes randomly into two files
-        import random
-        random.shuffle(barcodes)
-        split_point = len(barcodes) // 2
-        
-        # Write first paired file
-        paired1_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired1.txt")
-        with open(paired1_filepath, 'w') as f:
-            for barcode in barcodes[:split_point]:
-                f.write(barcode + '\n')
-        
-        # Write second paired file
-        paired2_filepath = os.path.join(args.output_dir, f"{args.output_prefix}_paired2.txt")
-        with open(paired2_filepath, 'w') as f:
-            for barcode in barcodes[split_point:]:
-                f.write(barcode + '\n')
-        
-        # Log file locations
-        logging.info(f"Paired files written to:")
-        logging.info(f"  {paired1_filepath} ({split_point} barcodes)")
-        logging.info(f"  {paired2_filepath} ({len(barcodes) - split_point} barcodes)")
-        logging.info(f"Log file: {log_filepath}")
-        
-        print(f"Successfully generated {len(barcodes)} barcodes (paired)")
-    else:
-        # Write single output file
-        output_filepath = os.path.join(args.output_dir, f"{args.output_prefix}.txt")
-        with open(output_filepath, 'w') as f:
-            for barcode in barcodes:
-                f.write(barcode + '\n')
-        
-        # Log file location
-        logging.info(f"Output written to: {output_filepath}")
-        logging.info(f"Log file: {log_filepath}")
-        
-        print(f"Successfully generated {len(barcodes)} barcodes")
+    # Write outputs
+    write_barcode_outputs(barcodes, args, paired_seed1_pool, paired_seed2_pool, log_filepath)
 
 if __name__ == "__main__":
     main()

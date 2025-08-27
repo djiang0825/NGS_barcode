@@ -1,9 +1,14 @@
+# Virtual environment
 barcode-env/
 
+# Python cache
 src/utils/__pycache__/
 
+# OS files
 .DS_Store
 
+# Test cases
 test_cases.txt
 
+# Test output
 test/

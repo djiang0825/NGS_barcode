@@ -1,7 +1,7 @@
-# Barcadia (v1.1)  
+# Barcadia (v2)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-1.1-blue)  
+![version](https://img.shields.io/badge/version-2.0-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -31,6 +31,7 @@ Barcadia makes it easy to design small or large NGS barcode sets that are optimi
   - [Main Scripts](#main-scripts-user-facing)
   - [Utility Scripts](#utility-scripts)
 - [Additional Utilities](#additional-utilities)
+- [Changelog](#changelog)
 
 ## Background
 
@@ -124,18 +125,33 @@ The bounds shown above consider **only distance constraints**. In practice, addi
 
 ## Benchmarking Highlights
 
-Below are performance benchmarks on a MacBook Pro 2019 (8-core, 16GB RAM) using default parameters with target sizes near the Gilbert-Varshamov bound:
+Below are performance benchmarks for **barcode generation** on a MacBook Pro 2019 (8-core, 16GB RAM) using default parameters with target sizes near the Gilbert-Varshamov bound (generating equal-length libraries from scratch without seed sequences provided):
 
 <div align="center">
 
-| Length (bp) | Target Size | Time (Peak Memory)    |
-|:-----------:|:-----------:|:---------------------:|
-| 6           | 10          | 0.3 seconds (90 MB)   |
-| 8           | 100         | 0.4 seconds (90 MB)   |
-| 10          | 1,000       | 0.7 seconds (90 MB)   |
-| 12          | 10,000      | 28 seconds (90 MB)    |
-| 14          | 100,000     | 16 minutes (170 MB)   |
-| 16          | 1,000,000   | 14.5 hours (987 MB)   |
+| Length (bp) | Library Size | Time (Peak Memory)    |
+|:-----------:|:------------:|:---------------------:|
+| 6           | 10           | 0.3 seconds (90 MB)   |
+| 8           | 100          | 0.4 seconds (90 MB)   |
+| 10          | 1,000        | 0.7 seconds (90 MB)   |
+| 12          | 10,000       | 28 seconds (90 MB)    |
+| 14          | 100,000      | 16 minutes (170 MB)   |
+| 16          | 1,000,000    | 14.5 hours (987 MB)   |
+
+</div>
+
+Below are performance benchmarks for **barcode validation** on a MacBook Pro 2019 (8-core, 16GB RAM) using default parameters with pool sizes near the Gilbert-Varshamov bound (validating barcodes that pass all the within-sequence and between-sequence filters):
+
+<div align="center">
+
+| Length (bp) | Library Size | Time (Peak Memory)    |
+|:-----------:|:------------:|:---------------------:|
+| 6           | 10           | 0.4 seconds (90 MB)   |
+| 8           | 100          | 0.4 seconds (90 MB)   |
+| 10          | 1,000        | 0.7 seconds (90 MB)   |
+| 12          | 10,000       | 6.6 seconds (97 MB)   |
+| 14          | 100,000      | 1 minute (194 MB)     |
+| 16          | 1,000,000    | 21 mins (1177 MB)     |
 
 </div>
 
@@ -163,7 +179,7 @@ pip install -r requirements.txt
 ```
 Barcode/
 ├── src/
-│   ├── generate_barcodes.py                     # Main barcode generation script
+│   ├── generate_barcodes.py                     # Barcode generation script
 │   ├── validate_barcodes.py                     # Barcode validation script
 │   └── utils/
 │       ├── dna_utils.py                         # DNA encoding/decoding utilities
@@ -179,33 +195,43 @@ Barcode/
 
 #### 1. `generate_barcodes.py` - Barcode Generation
 
-**Purpose**: Generate diverse NGS barcodes from scratch or extend existing seed sequences using an iterative growth algorithm (paired mode supported).
+**Purpose**: Generate diverse NGS barcodes from scratch or extend existing seed sequences using a novel iterative growth algorithm (paired mode supported).
 
 **Algorithm Overview**:
-1. Generate random sequences passing biological filters (GC content, homopolymer length)
-2. Filter candidates for minimum distance constraints vs existing pool (parallel)
-3. Filter candidates for distance constraints within batch (sequential)
+1. Generate random sequence candidates passing biological filters (GC content, homopolymer length)
+2. Filter candidates passing minimum distance constraints compared to existing pool (parallel)
+3. Verify candidates passing distance constraints within each batch (sequential)
 4. Add verified batch to pool and repeat until target count reached
 
 **Key Features**:
-- Guarantees no duplicate sequences
-- Satisfies all constraints in final pool
-- Supports paired barcode generation (when --paired flag is on, will generate 2x the amount of target counts and split output into 2 files)
-- Can build from seed sequence files (when --seeds flag is on) and accomodate difference in lengths between seed and new sequences (new sequences are all the same length)
-- Parallel processing with configurable CPU usage and intelligent chunk sizing
-- Memory-efficient integer encoding
+- Uses Hamming distance for generation from scratch when no seed is provided (always equal-length)
+- Supports **extension from seed sequence** file(s) (when `--seeds` is specified) and can accommodate: 
+  - Multiple seed files of equal or variable lengths (concatenated automatically as seed pool)
+  - Differences in lengths between seed pool and newly-generated sequences (NOTE: new sequences are always the same length as specified by `--length`)
+  - Uses Hamming distance for equal-length comparisons, Levenshtein distance for mixed lengths (compared to seed pool)
+  - Incompatible with `--paired` mode
+- Supports **paired barcode generation** (when `--paired` flag is on) by generating 2x the target count and splitting output into 2 files with suffixes `_paired1.txt` and `_paired2.txt`
+- Supports paired barcode generation with **paired seed** files (when`--paired-seed1` and `--paired-seed2` are specified), but is more restrictive than `--seeds` in unpaired mode:
+  - Only accepts one file each and both must be specified
+  - Validates that both files have the same number of sequences with all sequences being the same length within and across both files
+  - Similar to `--seeds`, can accommodate differences in lengths between seed pool and newly-generated sequences (Hamming for equal/Levenshtein for mixed)
 
 **Basic Usage**:
 ```bash
-# Generate 1000 barcodes of length 12
+# Generate 1000 barcodes of length 12 from scratch (no seeds)
 python src/generate_barcodes.py --count 1000 --length 12
 
-# Generate paired barcodes
+# Build from a seed sequence file
+python src/generate_barcodes.py --count 1000 --length 12 --seeds seed.txt
+
+# Build from multiple seed sequence files
+python src/generate_barcodes.py --count 1000 --length 12 --seeds seed_file1.txt seed_file2.txt
+
+# Generate paired barcodes from scratch (no seeds)
 python src/generate_barcodes.py --count 1000 --length 12 --paired
 
-# Build from seed sequences
-python src/generate_barcodes.py --count 1000 --length 12 \
-    --seeds seed_file1.txt seed_file2.txt
+# Generate paired barcodes with paired seed files
+python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1 seed_paired1.txt --paired-seed2 seed_paired2.txt
 ```
 
 **Required Arguments**:
@@ -218,10 +244,18 @@ python src/generate_barcodes.py --count 1000 --length 12 \
 - `--homopolymer-max`: Maximum homopolymer length (default: 2)
 - `--min-distance`: Minimum Hamming distance between sequences (default: 3)
 - `--cpus`: Number of CPU cores to use (default: all available)
-- `--paired`: Generate paired barcodes (doubles count, creates two files)
-- `--seeds`: Seed sequence files (one sequence per line)
+- `--seeds`: seed sequence files (any number of files, one sequence per line as .txt; if not provided, will generate from scratch; incompatible with --paired mode; default: None) 
+- `--paired`: generate paired barcodes (doubles target count, splits into two files; incompatible with --seeds; default: off)
+- `--paired-seed1`: paired seed sequence file 1 (used only with --paired and --paired-seed2, only one file is accepted, all sequences must be same length and match count/length of --paired-seed2; default: None)
+- `--paired-seed2`: paired seed sequence file 2 (used only with --paired and --paired-seed1, only one file is accepted, all sequences must be same length and match count/length of --paired-seed1; default: None)
+
 - `--output-dir`: Output directory (default: test)
 - `--output-prefix`: Output filename prefix (default: barcodes)
+
+**Important Notes**:
+- **Seed sequences are not validated**: If using seed files (paired or unpaired), run `validate_barcodes.py` first to ensure they pass all filters
+- In paired mode with seeds, both `--paired-seed1` and `--paired-seed2` must be provided and have the same count/length
+- Seeds are preserved in the output files (paired or unpaired)
 
 **Output Files**:
 - `{prefix}.txt` or `{prefix}_paired1.txt` & `{prefix}_paired2.txt`: Generated barcodes
@@ -233,28 +267,32 @@ python src/generate_barcodes.py --count 1000 --length 12 \
 
 **Purpose**: Validate existing barcode lists against quality filters with support for variable-length sequences.
 
-**Validation Process**:
-1. Load and parse input files (report lengths distribution)
-2. Apply biological filters (GC content, homopolymer checks)
-3. Validate distance constraints with early stopping on first violation
+**Algorithm Overview**:
+1. Load and parse input file(s) and report lengths distribution
+2. Check if sequences fail both biological filters (GC content, homopolymer checks)
+3. Validate distances efficiently based on dataset characteristics with early stopping on first violation (skipping allowed)
 4. Generate detailed validation report
 
 **Key Features**:
 - Supports multiple input files (automatically concatenated) with variable lengths
 - Uses Hamming distance for equal-length sequences, Levenshtein for mixed lengths
-- Parallel processing for large datasets (>10,000 sequences)
-- Early stopping of distance validation for efficiency
-- Comprehensive reporting
+- **Comprehensive distance validation method selection** (for sequences passing biological filters):
+  - Small (<10K sequences) datasets: Sequential pairwise validation
+  - Large mixed-length datasets: Parallel pairwise validation
+  - Large equal-length datasets: Chooses between neighbor enumeration and parallel pairwise validation by comparing their theoretical numbers of operations, which can be calculated given input sequence counts, length, and `--min-distance`
+  - Early stopping on first violation
+  - Can be skipped when `--skip-distance` flag is on
+- Comprehensive reporting with violation cases (for both biological and distance constraints)
 
 **Basic Usage**:
 ```bash
 # Validate a single file
 python src/validate_barcodes.py --input barcodes.txt
 
-# Validate multiple files
+# Validate multiple files (automatically concatenated)
 python src/validate_barcodes.py --input file1.txt file2.txt file3.txt
 
-# Skip distance checking if biological filters fail
+# Skip distance validation entirely (biological filters only)
 python src/validate_barcodes.py --input barcodes.txt --skip-distance
 ```
 
@@ -266,7 +304,7 @@ python src/validate_barcodes.py --input barcodes.txt --skip-distance
 - `--gc-max`: Maximum GC content (default: 0.6)
 - `--homopolymer-max`: Maximum homopolymer length (default: 2)
 - `--min-distance`: Minimum distance between sequences (default: 3)
-- `--skip-distance`: Skip distance validation if biological filters fail (default: false)
+- `--skip-distance`: Skip distance validation entirely (default: off)
 - `--cpus`: Number of CPUs for parallel validation (default: all available)
 - `--output-dir`: Output directory for logs and reports (default: test)
 
@@ -322,4 +360,20 @@ High-performance filtering algorithms with Numba JIT compilation:
 - Numba JIT compilation for speed
 - GC content and homopolymer repeat filtering
 - Hamming distance for equal-length sequences with early stopping 
-- Levenshtein distance for variable-length sequences 
+- Levenshtein distance for variable-length sequences with early stopping
+
+## Changelog
+
+### Version 2.0
+- Enhanced paired barcode generation with seed files (added `--paired-seed1`, `--paired-seed2`)
+- Implemented intelligent validation algorithm selection (neighbor enumeration vs pairwise) with significantly improved performance
+- Optimized progress logging and violation reporting for validation
+- Added validation benchmarking results in readme file
+- Implemented early-stopping optimization for Levenshtein distance calculation
+- Enhanced documentation and code organization
+
+---
+
+### Version 1.1
+
+- Initial release with updated readme file
