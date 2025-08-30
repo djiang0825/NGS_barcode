@@ -2,15 +2,26 @@
 """
 filter_utils.py
 
-Core filter utility functions with Numba JIT compilation for efficient DNA barcode processing.
+Filter-related utility functions with Numba JIT compilation for efficient barcode generation and validation.
 """
 
 from numba import jit
 import numpy as np
-import math
+
+# Simple validation of filter arguments used in both generation and validation
+def validate_filter_arguments(args):
+    """Validate filter-related command line arguments and raise ValueError if invalid"""
+    if args.gc_min < 0 or args.gc_max > 1 or args.gc_min >= args.gc_max:
+        raise ValueError("GC content bounds must be: 0 ≤ gc_min < gc_max ≤ 1")
+    
+    elif args.homopolymer_max < 1:
+        raise ValueError("Maximum homopolymer repeat length must be ≥ 1")
+    
+    elif args.min_distance < 1:
+        raise ValueError("Minimum edit distance must be ≥ 1")
 
 # Biological filter functions
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def check_gc_content_int(seq_array, gc_min, gc_max):
     """Check if sequence passes GC content filter (works with integer arrays)"""
     # G=2, C=3 in our encoding - count them directly
@@ -21,19 +32,16 @@ def check_gc_content_int(seq_array, gc_min, gc_max):
     gc_content = gc_count / len(seq_array)
     return gc_min <= gc_content <= gc_max
 
-@jit(nopython=True)
-def check_homopolymer_int(seq_array, max_length):
-    """Check for homopolymer repeats longer than max_length (works with integer arrays)"""
-    if len(seq_array) == 0:
-        return True
-        
+@jit(nopython=True, cache=True)
+def check_homopolymer_int(seq_array, homopolymer_max):
+    """Check for homopolymer repeats longer than homopolymer_max (works with integer arrays)"""
     current_base = seq_array[0]
     current_count = 1
     
     for base in seq_array[1:]:
         if base == current_base:
             current_count += 1
-            if current_count > max_length:
+            if current_count > homopolymer_max:
                 return False  # Fails check
         else:
             current_base = base
@@ -42,9 +50,9 @@ def check_homopolymer_int(seq_array, max_length):
     return True  # Passes check
 
 # Distance calculation functions
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def hamming_distance_int(seq1, seq2, min_distance):
-    """Calculate Hamming distance with early stopping (assumes equal-length sequences)"""
+    """Calculate Hamming distance with early stopping (assumes equal-length sequences, works with integer arrays)"""
     distance = 0
     for i in range(len(seq1)):
         if seq1[i] != seq2[i]:
@@ -53,13 +61,13 @@ def hamming_distance_int(seq1, seq2, min_distance):
                 return distance  # Early stopping
     return distance
 
-@jit(nopython=True)
-def levenshtein_distance(seq1, seq2, min_distance):
-    """Calculate Levenshtein distance with early stopping (works with integer arrays)"""
+@jit(nopython=True, cache=True)
+def levenshtein_distance_int(seq1, seq2, min_distance):
+    """Calculate Levenshtein distance with early stopping (assumes mixed-length sequences, works with integer arrays)"""
     if len(seq1) < len(seq2):
-        return levenshtein_distance(seq2, seq1, min_distance)
+        return levenshtein_distance_int(seq2, seq1, min_distance)
     
-    if len(seq2) == 0:
+    elif len(seq2) == 0:
         return len(seq1)
     
     # Use numpy arrays for better performance with numba
@@ -92,20 +100,31 @@ def calculate_distance(seq1, seq2, min_distance):
     if len(seq1) == len(seq2):
         return hamming_distance_int(seq1, seq2, min_distance)
     else:
-        return levenshtein_distance(seq1, seq2, min_distance)
+        return levenshtein_distance_int(seq1, seq2, min_distance)
 
-def calculate_neighbor_count(length, max_distance, alphabet_size=4):
-    """Calculate number of neighbors within max_distance for Hamming distance"""
-    total_neighbors = 0
-    substitutions_per_position = alphabet_size - 1  # 3 for DNA
+def select_distance_method(target_count, min_distance, has_mixed_lengths):
+    """
+    Determine which distance checking method to use based on barcode set characteristics.
+    Returns: "pairwise" or "neighbor_enumeration"
     
-    for dist in range(1, max_distance + 1):
-        combinations = math.comb(length, dist)
-        substitutions = substitutions_per_position ** dist
-        neighbors_at_dist = combinations * substitutions
-        total_neighbors += neighbors_at_dist
+    Rules:
+    1. Small barcode sets (<10K sequences counting seeds if seeds are present): Always use pairwise
+    2. Mixed-length sequences (within seeds and/or between seeds and new barcodes): Always use pairwise
+    3. Minimum distance threshold: For min_distance <= 4, use neighbor enumeration, otherwise pairwise
+    """
+    # Rule 1: Small barcode sets always use pairwise
+    if target_count < 10000:
+        return "pairwise"
     
-    return total_neighbors
+    # Rule 2: Mixed-length sequences always use pairwise
+    elif has_mixed_lengths:
+        return "pairwise"
+    
+    # Rule 3: For large minimum distance always use pairwise
+    elif min_distance <= 4:
+        return "neighbor_enumeration"
+    else:
+        return "pairwise"
 
 def generate_hamming_neighbors(seq_array, max_distance, current_distance=0):
     """Generate all Hamming neighbors within max_distance of a sequence"""
@@ -125,5 +144,3 @@ def generate_hamming_neighbors(seq_array, max_distance, current_distance=0):
                 seq_array[i] = new_base
                 yield from generate_hamming_neighbors(seq_array, max_distance, current_distance + 1)
         seq_array[i] = original_base  # backtrack
-
- 

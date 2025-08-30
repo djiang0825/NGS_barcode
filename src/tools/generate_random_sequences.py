@@ -4,7 +4,7 @@ generate_random_sequences.py
 
 Generate random DNA sequences for testing validation scripts (variable length sequences supported).
 
-Input: none
+Example usage: python src/tools/generate_random_sequences.py --count 100 --lengths 15 20 25
 
 Output: random DNA sequences (one per line as .txt)
 
@@ -19,14 +19,17 @@ Required arguments:
 import argparse
 import random
 import os
+import sys
 import numpy as np
 
-# Import DNA encoding utilities
-from dna_utils import decode_sequence
+# Add src directory to Python path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.config_utils import decode_sequence
 
 def generate_random_sequence(length):
     """Generate a single random DNA sequence of given length as integer array"""
-    return np.random.choice([0, 1, 2, 3], size=length).astype(np.int8)
+    return np.random.randint(0, 4, size=length, dtype=np.int8)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -70,25 +73,20 @@ def main():
         
         args.output = f"test/{args.count}_random_{length_range}bp_sequences.txt"
     
-    # Generate sequences with random lengths
-    sequences = []
-    for _ in range(args.count):
-        # Randomly choose a length from the provided options
-        chosen_length = random.choice(args.lengths)
-        seq_array = generate_random_sequence(chosen_length)
-        sequences.append(seq_array)
-    
-    # Write to file (convert to DNA strings for output)
+    # Generate sequences, write to file, and count lengths in one loop
+    length_counts = {}
     with open(args.output, 'w') as f:
-        for seq_array in sequences:
+        for _ in range(args.count):
+            # Randomly choose a length from the provided options
+            chosen_length = random.choice(args.lengths)
+            seq_array = generate_random_sequence(chosen_length)
+            
+            # Write to file (convert to DNA string for output)
             dna_string = decode_sequence(seq_array)
             f.write(dna_string + '\n')
-    
-    # Count sequences by length
-    length_counts = {}
-    for seq_array in sequences:
-        length = len(seq_array)
-        length_counts[length] = length_counts.get(length, 0) + 1
+            
+            # Count sequences by length
+            length_counts[chosen_length] = length_counts.get(chosen_length, 0) + 1
     
     length_breakdown = ", ".join([f"{count} at length {length}" for length, count in sorted(length_counts.items())])
     

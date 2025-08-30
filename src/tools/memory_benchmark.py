@@ -4,9 +4,16 @@ memory_benchmark.py
 
 Simple memory benchmarking utility for tracking maximum memory usage of processes.
 
-Example usage: python src/utils/memory_benchmark.py src/{script_name}.py --args
+Example usage: python src/tools/memory_benchmark.py src/{script_name}.py --args
 
-Output: memory usage report shown in terminal and .log file
+Output: memory usage report shown in terminal and memory_benchmark_{timestamp}.log file
+
+Optional arguments:
+--output-dir: output directory for benchmark logs (default: test)
+
+Required arguments:
+script_path: path to the Python script to benchmark
+script_args: arguments to pass to the script
 """
 
 import psutil
@@ -16,8 +23,13 @@ import time
 import os
 import logging
 import argparse
-from datetime import datetime
+import os
+import sys
 
+# Add src directory to Python path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.config_utils import setup_logging
 
 def benchmark_script(script_path, *args):
     """
@@ -80,15 +92,14 @@ def benchmark_script(script_path, *args):
         'stderr': stderr
     }
 
-
 def main():
     """Command-line interface for benchmarking scripts."""
     parser = argparse.ArgumentParser(
         description="Benchmark memory usage of Python scripts",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Examples:\n"
-               "  python src/utils/memory_benchmark.py src/validate_barcodes.py --input test/barcodes.txt\n"
-               "  python src/utils/memory_benchmark.py --output-dir results src/generate_barcodes.py --count 100 --length 15"
+               "  python src/tools/memory_benchmark.py src/validate_barcodes.py --input test/barcodes.txt\n"
+               "  python src/tools/memory_benchmark.py --output-dir results src/generate_barcodes.py --count 100 --length 15"
     )
     
     parser.add_argument('--output-dir', type=str, default='test',
@@ -103,20 +114,7 @@ def main():
     output_dir = args.output_dir
     
     # Setup logging
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"memory_benchmark_{timestamp}.log"
-    log_filepath = os.path.join(output_dir, log_filename)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S',
-        handlers=[
-            logging.FileHandler(log_filepath),
-            logging.StreamHandler()
-        ]
-    )
+    log_filepath = setup_logging(args, "memory_benchmark")
     
     # Log benchmark start
     logging.info(f"Starting memory benchmark for: {script_path}")
@@ -139,7 +137,6 @@ def main():
         logging.info(f"Benchmark log file: {log_filepath}")
     else:
         logging.error("Benchmark failed!")
-
 
 if __name__ == "__main__":
     main() 
