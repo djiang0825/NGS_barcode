@@ -11,7 +11,7 @@ Program Overview:
 3. For sequences passing biological filters, apply intelligent algorithm selection for distance validation (unless --skip-distance flag is enabled):
    3a. Method selection logic (based on sequences passing biological filters):
        - Small barcode sets (<10K sequences): Pairwise sequential
-       - Large barcode sets (≥10K sequences) with mixed lengths and/or min_distance > 4: Pairwise parallel
+       - Large barcode sets (≥10K sequences) with mixed lengths and/or min_distance > 4: Pairwise parallel (when multiple CPUs available, otherwise sequential)
        - Large equal-length barcode sets (≥10K sequences) with min_distance ≤ 4: Neighbor enumeration
    3b. Distance calculation: Hamming distance for equal-length sequences, Levenshtein for mixed lengths
    3c. Progress logging during validation (every 10 chunks for pairwise parallel, every 10K sequences for neighbor enumeration)
@@ -48,7 +48,7 @@ from utils.config_utils import decode_sequence
 from utils.filter_utils import check_gc_content_int, check_homopolymer_int, calculate_distance, generate_hamming_neighbors, validate_filter_arguments, select_distance_method
 from utils.config_utils import setup_logging, read_files
 
-def validate_sequence_biological(seq_array, gc_min, gc_max, homopolymer_max):
+def validate_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological filters and return all violations"""
     violations = []
     
@@ -65,110 +65,14 @@ def validate_sequence_biological(seq_array, gc_min, gc_max, homopolymer_max):
     else:
         return True, "Passes all filters"
 
-def check_distance_violation(sequences, i, j, min_distance):
-    """Check if a pair of sequences violates distance constraint"""
-    distance = calculate_distance(sequences[i], sequences[j], min_distance)
-    if distance < min_distance:
-        return (i, j, distance)
-    return None
-
-def log_and_create_violation_details(sequences, i, j, violation):
+def log_violation_details(sequences, i, j, violation):
     """Log distance violation and create violation details with DNA strings for reporting"""
     logging.info(f"Early stopping: Found distance violation between sequences {violation[0]+1} and {violation[1]+1} (distance={violation[2]})")
     seq1_str = decode_sequence(sequences[i])
     seq2_str = decode_sequence(sequences[j])
     return (violation[0]+1, violation[1]+1, seq1_str, seq2_str, violation[2])
 
-def validate_distance_constraints(sequences, min_distance):
-    """Check if all sequences meet minimum distance requirements - exits early on first violation"""
-    pairs_checked = 0
-    
-    for i in range(len(sequences)):
-        for j in range(i + 1, len(sequences)):
-            pairs_checked += 1
-            
-            # No progress logging for sequential validation (small barcode sets are fast)
-            violation = check_distance_violation(sequences, i, j, min_distance)
-            if violation is not None:
-                # Early exit - we found a violation, no need to continue
-                violation_details = log_and_create_violation_details(sequences, i, j, violation)
-                return True, pairs_checked, violation_details
-    
-    return False, pairs_checked, None
-
-def generate_pair_chunk(start_idx, chunk_size, n):
-    """Generate a chunk of pairs lazily starting from start_idx"""
-    pairs_generated = 0
-    current_idx = 0
-    
-    for i in range(n):
-        for j in range(i + 1, n):
-            if current_idx >= start_idx:
-                if pairs_generated >= chunk_size:
-                    return
-                yield (i, j)
-                pairs_generated += 1
-            current_idx += 1
-
-def check_pair_chunk_worker(args):
-    """Worker function for parallel distance validation"""
-    start_idx, chunk_size, n, sequences, min_distance = args
-    pairs_checked = 0
-    
-    # Generate pairs lazily for this chunk
-    for i, j in generate_pair_chunk(start_idx, chunk_size, n):
-        violation = check_distance_violation(sequences, i, j, min_distance)
-        pairs_checked += 1
-        
-        if violation is not None:
-            # Return basic violation info (i, j, distance)
-            return violation, pairs_checked
-    
-    return None, pairs_checked
-
-def validate_distance_constraints_parallel(sequences, min_distance, cpus=None):
-    """Parallel version of distance validation with early stopping (memory-efficient)"""
-    n = len(sequences)
-    cpus = cpus or mp.cpu_count()
-    
-    # Calculate chunk parameters
-    total_pairs = n * (n - 1) // 2
-    chunk_size = max(100000, total_pairs // (cpus * 10))
-    
-    # Generate chunk start indices (no pair data stored in memory)
-    chunk_starts = list(range(0, total_pairs, chunk_size))
-    
-    with ProcessPoolExecutor(max_workers=cpus) as executor:
-        # Submit workers with lazy chunk parameters (not actual pair data)
-        futures = [executor.submit(check_pair_chunk_worker, (start_idx, chunk_size, n, sequences, min_distance)) 
-                  for start_idx in chunk_starts]
-        
-        # Process results with early stopping
-        total_pairs_checked = 0
-        chunk_count = 0
-        
-        for future in futures:
-            result, pairs_checked = future.result()
-            total_pairs_checked += pairs_checked
-            chunk_count += 1
-            
-            # Progress logging every 10 chunks for parallel validation
-            if chunk_count % 10 == 0:
-                logging.info(f"Progress: {total_pairs_checked:,}/{total_pairs:,} pairs checked "
-                           f"({total_pairs_checked/total_pairs*100:.1f}%) - {chunk_count} chunks completed")
-            
-            if result is not None:
-                # Create violation details from basic violation info
-                violation_details = log_and_create_violation_details(sequences, result[0], result[1], result)
-                # Cancel remaining futures for early stopping
-                for f in futures:
-                    f.cancel()
-                return True, total_pairs_checked, violation_details
-        
-        # If no violations found, we checked all pairs
-        return False, total_pairs_checked, None
-
-def validate_distance_constraints_neighbor_enumeration(sequences, min_distance):
+def validate_distances_neighbor_enum(sequences, min_distance):
     """Validate using neighbor enumeration - much faster for appropriate cases"""
     # Build hash set of all sequences for O(1) lookup
     sequence_set = set(tuple(seq) for seq in sequences)
@@ -192,14 +96,78 @@ def validate_distance_constraints_neighbor_enumeration(sequences, min_distance):
                         # Calculate actual distance for reporting
                         actual_distance = sum(a != b for a, b in zip(seq, other_seq))
                         violation = (i, j, actual_distance)
-                        violation_details = log_and_create_violation_details(sequences, i, j, violation)
+                        violation_details = log_violation_details(sequences, i, j, violation)
                         sequences_processed = i + 1  # Number of sequences processed when violation found
                         return True, sequences_processed, violation_details
     
     # No violations found - processed all sequences
     return False, total_sequences, None
 
-def validate_barcodes(sequences, gc_min, gc_max, homopolymer_max, min_distance, has_mixed_lengths, skip_distance=False, cpus=None, output_dir="test", input_file=None, log_filepath=None):
+def generate_pair_chunk(start_idx, chunk_size, n):
+    """Generate a chunk of pairs lazily starting from start_idx"""
+    pairs_generated = 0
+    current_idx = 0
+    
+    for i in range(n):
+        for j in range(i + 1, n):
+            if current_idx >= start_idx:
+                if pairs_generated >= chunk_size:
+                    return
+                yield (i, j)
+                pairs_generated += 1
+            current_idx += 1
+
+def validate_chunk(sequences_chunk, min_distance):
+    """Worker function for distance validation (can be used sequentially or in parallel)"""
+    pairs_checked = 0
+    n = len(sequences_chunk)
+    
+    # Use the lazy pair generator for memory efficiency
+    for i, j in generate_pair_chunk(0, n * (n - 1) // 2, n):
+        distance = calculate_distance(sequences_chunk[i], sequences_chunk[j], min_distance)
+        pairs_checked += 1
+        
+        if distance < min_distance:
+            violation = (i, j, distance)
+            violation_details = log_violation_details(sequences_chunk[i], sequences_chunk[j], violation)
+            return True, pairs_checked, violation_details
+    
+    return False, pairs_checked, None
+
+def validate_distances(sequences, min_distance, method, cpus, chunk_size):
+    """Unified distance validation with method selection and parallel/sequential execution"""
+    # Execute the chosen method
+    if method == "neighbor_enumeration":
+        # Use neighbor enumeration when set up is optimal (no parallelization involved)
+        return validate_distances_neighbor_enum(sequences, min_distance)
+    elif method == "pairwise_sequential" or cpus == 1:
+        # Use sequential for small barcode sets or single CPU
+        return validate_chunk(sequences, min_distance)
+    else:  # method == "pairwise" and cpus > 1
+        # Large dataset with multiple CPUs - always use parallel with pre-calculated chunk size
+        chunks = [sequences[i:i+chunk_size] for i in range(0, len(sequences), chunk_size)]
+        
+        with ProcessPoolExecutor(max_workers=cpus) as executor:
+            futures = [
+                executor.submit(validate_chunk, chunk, min_distance)
+                for chunk in chunks
+            ]
+            
+            # Process results with early stopping
+            total_pairs_checked = 0
+            for future in futures:
+                early_stopped, pairs_checked, violation_info = future.result()
+                total_pairs_checked += pairs_checked
+                
+                if early_stopped:
+                    # Cancel remaining futures for early stopping
+                    for f in futures:
+                        f.cancel()
+                    return True, total_pairs_checked, violation_info
+            
+            return False, total_pairs_checked, None
+
+def validate_barcodes(sequences, gc_min, gc_max, homopolymer_max, min_distance, has_mixed_lengths, skip_distance, cpus, output_dir, input_file, log_filepath):
     """Main function to validate input barcode sets against biological filters and distance constraints"""
     start_time = time.time()
     
@@ -214,7 +182,7 @@ def validate_barcodes(sequences, gc_min, gc_max, homopolymer_max, min_distance, 
     
     for i, seq_array in enumerate(sequences):
         # Check biological filters
-        is_valid, reason = validate_sequence_biological(seq_array, gc_min, gc_max, homopolymer_max)
+        is_valid, reason = validate_biological_filters(seq_array, gc_min, gc_max, homopolymer_max)
         
         if is_valid:
             valid_sequences.append(seq_array)
@@ -245,31 +213,32 @@ def validate_barcodes(sequences, gc_min, gc_max, homopolymer_max, min_distance, 
         logging.info(f"  Distance validation skipped")
     # If not, continue with distance validation
     else:        
-        # Get the method from the shared utility function
-        method = select_distance_method(n, min_distance, has_mixed_lengths) # will return "pairwise" or "neighbor_enumeration"
+        logging.info(f"Validating distances for sequences that passed biological filters...")
+        # Determine method and calculate chunk size for pairwise method
+        method = select_distance_method(n, min_distance, has_mixed_lengths)
         
-        # Log the decision and execute validation
+        # Calculate chunk size for pairwise method with multiple CPUs
+        chunk_size = None
+        if method == "pairwise_sequential":
+            logging.info(f"Using sequential pairwise distance checking (small barcode set for sequences that passed biological filters)")
+        elif method == "pairwise" and cpus == 1:
+            logging.info(f"Using sequential pairwise distance checking (1 CPU)")
+        elif method == "pairwise" and cpus > 1:
+            chunk_size = max(100000, total_pairs // (cpus * 10))
+            logging.info(f"Using parallel pairwise distance checking (chunk size: {chunk_size})")
+        
+        # Execute validation
+        early_stopped, features_checked, violation_info = validate_distances(valid_sequences, min_distance, method, cpus, chunk_size)
+        
+        # Log results
         if method == "neighbor_enumeration":
-            logging.info(f"Using neighbor enumeration for validation (sequences: {n}, min distance: {min_distance})")
-            validation_method = "neighbor_enumeration" #only for equal-length large sets with min_distance <= 4!
-            early_stopped, features_checked, violation_info = validate_distance_constraints_neighbor_enumeration(valid_sequences, min_distance)
-            logging.info(f"  Total sequences: {n}")
+            logging.info(f"  Total sequences (that passed biological filters): {n}")
             logging.info(f"  Sequences processed: {features_checked}")
         else:
-            if has_mixed_lengths: # additional logging for mixed lengths
-                logging.info(f"Mixed sequence lengths detected. Will use pairwise validation (sequential or parallel depending on size).")
-            if n < 10000:
-                logging.info(f"Using sequential pairwise validation (small barcode set: {n} < 10K)")
-                validation_method = "pairwise_sequential" # make pairwise sequential for small sets
-                early_stopped, features_checked, violation_info = validate_distance_constraints(valid_sequences, min_distance)
-                logging.info(f"  Total sequence pairs: {total_pairs:,} (sequences that passed biological filters)")
-                logging.info(f"  Pairs checked: {features_checked:,}")
-            else:
-                logging.info(f"Using parallel pairwise validation (large barcode set: {n} ≥ 10K), min distance: {min_distance} > 4")
-                validation_method = "pairwise_parallel" # make pairwise parallel for large sets that are not suitable for neighbor enumeration (due to mixed lengths or large min distance)
-                early_stopped, features_checked, violation_info = validate_distance_constraints_parallel(valid_sequences, min_distance, cpus)
-                logging.info(f"  Total sequence pairs: {total_pairs:,} (sequences that passed biological filters)")
-                logging.info(f"  Pairs checked: {features_checked:,}")
+            logging.info(f"  Total sequence pairs: {total_pairs:,} (sequences that passed biological filters)")
+            logging.info(f"  Pairs checked: {features_checked:,}")
+        
+        validation_method = method
     
     overall_valid = len(valid_sequences) == len(sequences) and not early_stopped
     

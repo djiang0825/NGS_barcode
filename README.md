@@ -1,7 +1,7 @@
-# Barcadia (v2.2)  
+# Barcadia (v2.3)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-2.2-blue)  
+![version](https://img.shields.io/badge/version-2.3-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -217,7 +217,7 @@ NGS_barcode/
 1. Load seed sequence files as existing pool and report length distribution (will generate from scratch if no seeds are provided)
 2. Generate a batch of unique random sequence candidates passing biological filters (GC content, homopolymer repeats)
 3. **Two-step distance filtering with adaptive method selection (neighbor enumeration or pairwise)**:
-   - Filter candidates against existing pool (can be parallelized if pairwise)
+   - Filter candidates against existing pool (if pairwise, parallelized for large sets when multiple CPUs available)
    - Filter remaining candidates against each other within the current batch (always sequential)
 4. Add verified batch of passing candidates to existing pool and repeat until target count reached
 
@@ -236,10 +236,10 @@ NGS_barcode/
   - Incompatible with `--seeds`
 - **Adaptive method selection for distance filtering**:
   - Small barcdoe sets (<10K sequences including seeds): Pairwise distance checking (fast for small sets)
-  - Large mixed-length sequences (within seeds and/or between seeds and new barcodes): Pairwise distance checking (neighbor enumeration requires complex Levenshtein handling)
-  - Large equal-length barcode sets (no seeds or everything equal-length): Choose between neighbor enumeration vs pairwise based on min_distance
-    * Neighbor enumeration: when min_distance <= 4 (limited number of neighbors to check)
+  - Large mixed-length (within seeds and/or between seeds and new barcodes): Pairwise distance checking (neighbor enumeration requires complex Levenshtein handling)
+  - Large equal-length (no seeds or everything equal-length): Choose between pairwise and neighbor enumeration based on min_distance
     * Pairwise distance checking: when min_distance > 4 (large number of neighbors to check)
+    * Neighbor enumeration: when min_distance <= 4 (limited number of neighbors to check)
 
 **Basic Usage**:
 ```bash
@@ -305,7 +305,7 @@ python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1
 - Uses Hamming distance for equal-length sequences, Levenshtein for mixed lengths (for sequences passing biological filters)
 - **Adaptive method selection for distance validation**:
   - Small barcode sets (<10K sequences): Sequential pairwise validation
-  - Large barcode sets (≥10K sequences) with mixed lengths or min_distance > 4: Parallel pairwise validation
+  - Large barcode sets (≥10K sequences) with mixed lengths and/or min_distance > 4: Parallel pairwise validation (when multiple CPUs available)
   - Large equal-length barcode sets (≥10K sequences) with min_distance ≤ 4: Neighbor enumeration
   - Early stopping on first violation
   - Can be skipped when `--skip-distance` flag is on
@@ -390,6 +390,12 @@ High-performance filtering algorithms with Numba JIT compilation:
 - Neighbor enumeration for efficient distance constraint checking
 
 ## Changelog
+
+### Version 2.3
+- Unified parallel processing logic between generation and validation
+- Enhanced documentation and code organization
+
+---
 
 ### Version 2.2
 - Improved adaptive distance method selection criteria for generation and validation

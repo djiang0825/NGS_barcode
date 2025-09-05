@@ -14,16 +14,16 @@ Program Overview:
    * Batch size is capped at 10,000 for barcode sets larger than 10,000, otherwise enforces 10 batches of minimum size 50
 4. Conduct two-step between-sequence distance filtering with optimized method selection (neighbor enumeration or pairwise):
    4a. Filter candidates against existing pool → step 2/3 of the overall filtering process
-     * If pairwise, use parallel processing with a minimum chunk size of 100 when candidate size is large enough, otherwise sequential (determined adaptively)
+     * If pairwise, use parallel processing for large datasets (≥10K) with multiple CPUs, sequential for small datasets (<10K) or single CPU
    4b. Filter remaining candidates against each other within the current batch → step 3/3 of the overall filtering process
      * If pairwise, always proceed sequentially in this step to ensure that the final pool fully satisfies the minimum distance requirement
 
    Method selection (applies to both steps, decided once per generation):
    - Small barcode sets (<10K sequences counting seeds if seeds are present): Always use pairwise distance checking
-   - Mixed-length sequences (within seeds and/or between seeds and new barcodes): Always use pairwise distance checking
-   - Large equal-length barcode sets (no seeds or everything equal-length): Choose between neighbor enumeration vs pairwise based on min_distance
-     * Neighbor enumeration: when min_distance <= 4 (limited number of neighbors to check)
+   - Large mixed-length (within seeds and/or between seeds and new barcodes): Always use pairwise distance checking
+   - Large equal-length (no seeds or everything of the same length counting seeds): Choose between pairwise and neighbor enumeration based on min_distance
      * Pairwise distance checking: when min_distance > 4 (large number of neighbors to check)
+     * Neighbor enumeration: when min_distance <= 4 (limited number of neighbors to check)
 5. Add the verified batch (candidates that pass all 3 steps of filtering) to pool, repeat until target count is reached
 
 6. Write outputs to files and log results
@@ -67,7 +67,7 @@ from utils.config_utils import decode_sequence
 from utils.filter_utils import hamming_distance_int, check_gc_content_int, check_homopolymer_int, calculate_distance, generate_hamming_neighbors, validate_filter_arguments, select_distance_method
 from utils.config_utils import setup_logging, read_files
 
-def passes_biological_filters_int(seq_array, gc_min, gc_max, homopolymer_max):
+def pass_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological quality filters (works with integer arrays)"""
     # Check GC content
     if not check_gc_content_int(seq_array, gc_min, gc_max):
@@ -98,7 +98,7 @@ def generate_random_sequences(count, length, gc_min, gc_max, homopolymer_max):
         seq_array = rng.integers(0, 4, size=length, dtype=np.int8)
         
         # Apply biological filters first (cheaper than duplicate check)
-        if passes_biological_filters_int(seq_array, gc_min, gc_max, homopolymer_max):
+        if pass_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
             # Only check duplicates for sequences that pass bio filters
             seq_tuple = tuple(seq_array)
             if seq_tuple not in seen_sequences:
@@ -109,21 +109,6 @@ def generate_random_sequences(count, length, gc_min, gc_max, homopolymer_max):
         logging.warning(f"Could only generate {len(sequences)}/{count} unique sequences after {max_attempts} attempts")
     
     return sequences
-
-def filter_chunk(candidates_chunk, existing_pool, min_distance):
-    """Filter a chunk of candidates (helper function for parallel processing)"""
-    valid_candidates = []
-    for candidate in candidates_chunk:
-        # Check if candidate is sufficiently distant from all existing sequences
-        is_valid = True
-        for existing_seq in existing_pool:
-            if calculate_distance(candidate, existing_seq, min_distance) < min_distance:
-                is_valid = False
-                break
-        
-        if is_valid:
-            valid_candidates.append(candidate)
-    return valid_candidates
 
 def filter_candidates_neighbor_enum(candidates, existing_pool, min_distance):
     """Filter candidates using neighbor enumeration for equal-length sequences"""
@@ -150,24 +135,34 @@ def filter_candidates_neighbor_enum(candidates, existing_pool, min_distance):
     
     return valid_candidates
 
-def filter_candidates(candidates, existing_pool, min_distance, n_cpus, method="pairwise"):
-    """Enhanced filtering with method selection (neighbor enumeration or parallel pairwise)"""
+def filter_chunk(candidates_chunk, existing_pool, min_distance):
+    """Filter a chunk of candidates (helper function for parallel processing/standalone sequential processing)"""
+    valid_candidates = []
+    for candidate in candidates_chunk:
+        # Check if candidate is sufficiently distant from all existing sequences
+        is_valid = True
+        for existing_seq in existing_pool:
+            if calculate_distance(candidate, existing_seq, min_distance) < min_distance:
+                is_valid = False
+                break
+        
+        if is_valid:
+            valid_candidates.append(candidate)
+    return valid_candidates
+
+def filter_candidates(candidates, existing_pool, min_distance, n_cpus, method, chunk_size):
+    """Enhanced filtering with method selection (neighbor enumeration or sequential/parallel pairwise)"""
     if not candidates:
         return []
     
     if method == "neighbor_enumeration":
-        # Use neighbor enumeration when set up is optimal (no parallelization needed - it's fast enough)
+        # Use neighbor enumeration when set up is optimal (no parallelization involved)
         return filter_candidates_neighbor_enum(candidates, existing_pool, min_distance)
-    else:
-        # Calculate optimal chunk size and number of chunks
-        chunk_size = max(100, len(candidates) // (n_cpus * 4)) # minimum chunk size is 100
-        num_chunks = (len(candidates) + chunk_size - 1) // chunk_size  # Ceiling division
-        
-        # Use sequential if we'd only create 1 chunk (parallelization not worthwhile)
-        if num_chunks < 2:
-            return filter_chunk(candidates, existing_pool, min_distance)
-        
-        # Use parallel processing with multiple chunks
+    elif method == "pairwise_sequential" or n_cpus == 1:
+        # Use sequential for small barcode sets or single CPU
+        return filter_chunk(candidates, existing_pool, min_distance)
+    else:  # method == "pairwise" and n_cpus > 1
+        # Large dataset with multiple CPUs - always use parallel with pre-calculated chunk size
         chunks = [candidates[i:i+chunk_size] for i in range(0, len(candidates), chunk_size)]
         
         valid_candidates = []
@@ -224,7 +219,7 @@ def filter_within_batch(valid_candidates, min_distance, method, sequences_needed
     return newly_selected
 
 def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, 
-                     n_cpus, seed_pool=None, is_paired=False, has_mixed_lengths=False):
+                     n_cpus, seed_pool, is_paired, has_mixed_lengths):
     """Main function to generate diverse barcode set using iterative growth"""
     logging.info(f"Starting barcode generation...")
 
@@ -261,22 +256,7 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         # No seeds for either mode
         logging.info("Seeds: None (building from scratch)")
     
-    # 3. Make one global decision about which distance method to use
-    # Use the shared utility function to determine the method with pre-calculated has_mixed_lengths
-    method = select_distance_method(target_count, min_distance, has_mixed_lengths)
-    
-    # Log the decision
-    if method == "neighbor_enumeration":
-        logging.info(f"Using neighbor enumeration for distance checking (target count: {target_count}, min distance: {min_distance})")
-    else:
-        if target_count < 10000:
-            logging.info(f"Using pairwise distance checking (small barcode set: {target_count} < 10K)")
-        elif has_mixed_lengths:
-            logging.info(f"Using pairwise distance checking (large barcode set: {target_count} ≥ 10K), mixed-length sequences detected)")
-        else:
-            logging.info(f"Using pairwise distance checking (large barcode set: {target_count} ≥ 10K), min distance {min_distance} > 4)")
-    
-    # 4. Calculate batch size after seed adjustment: cap at 10,000 for large barcode sets, use 10 batches for small barcode sets (min batch size is 50)
+    # 3. Calculate batch size after seed adjustment: cap at 10,000 for large barcode sets, use 10 batches for small barcode sets (min batch size is 50)
     if target_count <= 10000:
         # Small barcode sets: use 10 batches
         batch_size = max(50, target_count // 10)
@@ -289,6 +269,20 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
     logging.info(f"Filter 2 (within-sequence), Max homopolymer repeat length: {homopolymer_max}")
     logging.info(f"Filter 3 (between-sequence), Minimum edit distance: {min_distance}")
     logging.info(f"CPUs: {n_cpus}; batch size: {batch_size}")
+    
+    # 4. Make one global decision about which distance method to use
+    # Use the shared utility function to determine the method with pre-calculated has_mixed_lengths
+    method = select_distance_method(target_count, min_distance, has_mixed_lengths)
+    
+    # Calculate chunk size once for pairwise method with multiple CPUs
+    chunk_size = None
+    if method == "pairwise_sequential":
+        logging.info(f"Using sequential pairwise distance checking during step 2 (small barcode set)")
+    elif method == "pairwise" and n_cpus == 1:
+        logging.info(f"Using sequential pairwise distance checking during step 2 (1 CPU)")
+    elif method == "pairwise" and n_cpus > 1:
+        chunk_size = max(100, target_count // (n_cpus * 4))
+        logging.info(f"Using parallel pairwise distance checking during step 2 (chunk size: {chunk_size})")
     
     start_time = time.time()
     batch_num = 0
@@ -306,7 +300,7 @@ def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min
         
         # Filter candidates for distance constraints
         logging.info(f"Batch {batch_num}: (Step 2/3) Filtering candidates for distance ≥{min_distance} with existing pool...")
-        valid_candidates = filter_candidates(candidates, selected_pool, min_distance, n_cpus, method)
+        valid_candidates = filter_candidates(candidates, selected_pool, min_distance, n_cpus, method, chunk_size)
         
         # Within-batch distance checking
         logging.info(f"Batch {batch_num}: (Step 3/3) Filtering candidates for distance ≥{min_distance} within a batch...")
@@ -552,7 +546,7 @@ def calculate_gv_bound(length, min_distance):
     min_sequences = total_sequences // sphere_volume
     return min_sequences
 
-def validate_generator_arguments(args, seed_pool=None, length_counts=None):
+def validate_generator_arguments(args, seed_pool, length_counts):
     """Validate generator-specific arguments (length, count, min_distance, homopolymer_max) and return has_mixed_lengths flag"""
     # 1. Length validation
     if args.length <= 0:

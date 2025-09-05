@@ -7,6 +7,7 @@ Filter-related utility functions with Numba JIT compilation for efficient barcod
 
 from numba import jit
 import numpy as np
+import logging
 
 # Simple validation of filter arguments used in both generation and validation
 def validate_filter_arguments(args):
@@ -104,27 +105,32 @@ def calculate_distance(seq1, seq2, min_distance):
 
 def select_distance_method(target_count, min_distance, has_mixed_lengths):
     """
-    Determine which distance checking method to use based on barcode set characteristics.
-    Returns: "pairwise" or "neighbor_enumeration"
+    Determine which distance checking method to use based on barcode set characteristics and log the decision.
+    Returns: "pairwise_sequential", "pairwise", or "neighbor_enumeration"
     
     Rules:
-    1. Small barcode sets (<10K sequences counting seeds if seeds are present): Always use pairwise
-    2. Mixed-length sequences (within seeds and/or between seeds and new barcodes): Always use pairwise
-    3. Minimum distance threshold: For min_distance <= 4, use neighbor enumeration, otherwise pairwise
+    1. Small barcode sets (<10K sequences counting seeds if seeds are present): Always use pairwise_sequential
+    2. Large sets, mixed-length (within seeds and/or between seeds and new barcodes): Always use pairwise (parallelization determined later)
+    3. Large sets, equal-length (counting seeds): Always use pairwise with large minimum distance (> 4), otherwise use neighbor enumeration
     """
-    # Rule 1: Small barcode sets always use pairwise
+    # Rule 1: Small barcode sets, always use pairwise_sequential
     if target_count < 10000:
-        return "pairwise"
+        logging.info(f"Using pairwise distance checking for small barcode set (size < 10K)")
+        return "pairwise_sequential"
     
-    # Rule 2: Mixed-length sequences always use pairwise
+    # Rule 2: Large mixed-length sets, always use pairwise (parallel if multiple CPUs, determined in main generation/validation functions)
     elif has_mixed_lengths:
+        logging.info(f"Using pairwise distance checking for large mixed-length barcode set (size ≥ 10K)")
         return "pairwise"
     
-    # Rule 3: For large minimum distance always use pairwise
-    elif min_distance <= 4:
-        return "neighbor_enumeration"
-    else:
+    # Rule 3: Large equal-length sets with large minimum distance (> 4), always use pairwise (parallel if multiple CPUs, determined in main generation/validation functions)
+    elif min_distance > 4:
+        logging.info(f"Using pairwise distance checking for large equal-length barcode set (size ≥ 10K, min distance > 4)")
         return "pairwise"
+    else:
+        # Special case - neighbor enumeration for large equal-length sets with small minimum distance (<= 4) (no parallelization involved)
+        logging.info(f"Using neighbor enumeration for distance checking for large equal-length barcode set (size ≥ 10K, min distance ≤ 4)")
+        return "neighbor_enumeration"
 
 def generate_hamming_neighbors(seq_array, max_distance, current_distance=0):
     """Generate all Hamming neighbors within max_distance of a sequence"""
