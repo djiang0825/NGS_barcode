@@ -60,11 +60,12 @@ import time
 import multiprocessing as mp
 import os
 import random
+import sys
 from concurrent.futures import ProcessPoolExecutor
 
 # Import utility functions
-from utils.config_utils import decode_sequence, setup_logging, ExistingSequenceSet
-from utils.filter_utils import validate_filter_arguments, check_gc_content_int, check_homopolymer_int, hamming_distance_int, calculate_distance, select_distance_method, generate_hamming_neighbors
+from .config_utils import decode_sequence, setup_logging, ExistingSequenceSet
+from .filter_utils import validate_filter_arguments, check_gc_content_int, check_homopolymer_int, hamming_distance_int, calculate_distance, select_distance_method, generate_hamming_neighbors
 
 def pass_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological quality filters (works with integer arrays)"""
@@ -217,8 +218,8 @@ def filter_within_batch(valid_candidates, min_distance, method, sequences_needed
     
     return newly_selected
 
-def generate_barcodes(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, 
-                     n_cpus, seed_pool, is_paired, has_mixed_lengths):
+def generate_barcodes_core(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, 
+                          n_cpus, seed_pool, is_paired, has_mixed_lengths):
     """Main function to generate diverse barcode set using iterative growth"""
     logging.info(f"Starting barcode generation...")
 
@@ -571,9 +572,9 @@ def validate_generator_arguments(args, seed_pool, length_counts):
     
     return has_mixed_lengths
 
-def main():
+def main(argv=None):
     parser = setup_argument_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     log_filepath = setup_logging(args, "generate_barcodes")
     validate_filter_arguments(args) # simple validation of filter arguments
         
@@ -592,7 +593,7 @@ def main():
     has_mixed_lengths = validate_generator_arguments(args, sequence_set.sequences, sequence_set.length_counts)
 
     # Generate barcodes
-    barcodes = generate_barcodes(
+    barcodes = generate_barcodes_core(
         target_count=args.count,
         length=args.length,
         gc_min=args.gc_min,
@@ -609,4 +610,4 @@ def main():
     write_barcode_outputs(barcodes, args, sequence_set, log_filepath)
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

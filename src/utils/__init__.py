@@ -1,1 +1,0 @@
-# Utils package for barcode generation and validation 

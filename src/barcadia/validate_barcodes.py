@@ -40,12 +40,13 @@ import logging
 import os
 import time
 import multiprocessing as mp
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
 # Import utility functions
-from utils.config_utils import decode_sequence, setup_logging, ExistingSequenceSet
-from utils.filter_utils import validate_filter_arguments, check_gc_content_int, check_homopolymer_int, calculate_distance, select_distance_method, generate_hamming_neighbors
+from .config_utils import decode_sequence, setup_logging, ExistingSequenceSet
+from .filter_utils import validate_filter_arguments, check_gc_content_int, check_homopolymer_int, calculate_distance, select_distance_method, generate_hamming_neighbors
 
 def validate_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological filters and return all violations"""
@@ -128,7 +129,7 @@ def validate_chunk(sequences_chunk, min_distance):
         
         if distance < min_distance:
             violation = (i, j, distance)
-            violation_details = log_violation_details(sequences_chunk[i], sequences_chunk[j], violation)
+            violation_details = log_violation_details(sequences_chunk, i, j, violation)
             return True, pairs_checked, violation_details
     
     return False, pairs_checked, None
@@ -166,7 +167,7 @@ def validate_distances(sequences, min_distance, method, cpus, chunk_size):
             
             return False, total_pairs_checked, None
 
-def validate_barcodes(sequences, gc_min, gc_max, homopolymer_max, min_distance, has_mixed_lengths, skip_distance, cpus, output_dir, input_file, log_filepath):
+def validate_barcodes_core(sequences, gc_min, gc_max, homopolymer_max, min_distance, has_mixed_lengths, skip_distance, cpus, output_dir, input_file, log_filepath):
     """Main function to validate input barcode sets against biological filters and distance constraints"""
     start_time = time.time()
     
@@ -361,9 +362,9 @@ def validate_validator_arguments(args, length_counts):
     
     return has_mixed_lengths
 
-def main():
+def main(argv=None):
     parser = setup_argument_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     log_filepath = setup_logging(args, "validate_barcodes")
     validate_filter_arguments(args) # simple validation of filter arguments
 
@@ -374,7 +375,7 @@ def main():
     has_mixed_lengths = validate_validator_arguments(args, sequence_set.length_counts)
     
     # Validate barcodes
-    validate_barcodes(
+    validate_barcodes_core(
         sequences=sequence_set.sequences,
         gc_min=args.gc_min,
         gc_max=args.gc_max,
@@ -389,4 +390,4 @@ def main():
     )
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

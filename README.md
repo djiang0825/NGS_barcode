@@ -1,7 +1,7 @@
-# Barcadia (v2.4)  
+# Barcadia (v3.0)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-2.4-blue)  
+![version](https://img.shields.io/badge/version-3.0-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -26,11 +26,12 @@ Barcadia makes it easy to design small or large NGS barcode sets that are optimi
 - [Installation](#installation)
   - [Requirements](#requirements)
   - [Setup](#setup)
+- [Quick Start](#quick-start)
 - [Project Structure](#project-structure)
-- [Scripts Overview](#scripts-overview)
-  - [Main Scripts](#main-scripts)
-  - [User-Facing Utility Scripts](#user-facing-utility-scripts)
-  - [Core Library Modules](#core-library-modules)
+- [Commands Overview](#commands-overview)
+  - [Main Commands](#main-commands)
+  - [Shared Modules](#shared-modules)
+  - [Utility Scripts](#utility-scripts)
 - [Changelog](#changelog)
 
 ## Background
@@ -127,13 +128,13 @@ However, these theoretical bounds only capture the minimum distance constraints.
 
 1. **Generate sequences with only distance constraints** (no biological filters):
    ```bash
-   python src/generate_barcodes.py --count <large_number> --length <your_length> --gc-min 0 --gc-max 1 --homopolymer-max <your_length>
+   barcadia generate --count <large_number> --length <your_length> --gc-min 0 --gc-max 1 --homopolymer-max <your_length>
    ```
    *Note: Use a count near the GV bound for your parameters, and set homopolymer-max to your barcode length. This overrides the default biological filters (gc-min=0.4, gc-max=0.6, homopolymer-max=2).*
 
 2. **Check how many pass biological filters** (skipping distance validation):
    ```bash
-   python src/validate_barcodes.py --input barcodes.txt --skip-distance
+   barcadia validate --input barcodes.txt --skip-distance
    ```
    *Note: By default, this validation step uses the biological filters (gc-min=0.4, gc-max=0.6, homopolymer-max=2) to check how many sequences pass. You can also set custom filter values if desired.*
 
@@ -176,7 +177,7 @@ Below are performance benchmarks for **barcode validation** on a MacBook Pro 201
 ### Requirements
 
 - Python 3.12+ (tested with Python 3.12)
-- Required packages (install via `pip install -r requirements.txt`):
+- Required packages (install via `pip install -e .`):
   - numpy==2.2.6
   - numba==0.61.2 (for JIT compilation acceleration)
   - llvmlite==0.44.0
@@ -187,7 +188,24 @@ Below are performance benchmarks for **barcode validation** on a MacBook Pro 201
 ```bash
 git clone https://github.com/djiang0825/NGS_barcode.git
 cd NGS_barcode
-pip install -r requirements.txt
+pip install -e .
+```
+
+This installs Barcadia as a Python package with the `barcadia` command-line tool.
+
+## Quick Start
+
+```bash
+# Generate 1000 barcodes of length 12
+barcadia generate --count 1000 --length 12
+
+# Validate existing barcodes
+barcadia validate --input barcodes.txt
+
+# Get help for any command
+barcadia --help
+barcadia generate --help
+barcadia validate --help
 ```
 
 ## Project Structure
@@ -195,22 +213,25 @@ pip install -r requirements.txt
 ```
 NGS_barcode/
 ├── src/
-│   ├── generate_barcodes.py                     # Barcode generation script
-│   ├── validate_barcodes.py                     # Barcode validation script
-│   ├── tools/
-│   │   ├── generate_random_sequences.py         # Random sequence generator for validation testing
-│   │   └── memory_benchmark.py                  # Performance monitoring script
-│   └── utils/
-│       ├── config_utils.py                      # Configuration utilities 
-│       └── filter_utils.py                      # Core filtering utilities
-└── requirements.txt                             # Python dependencies
+│   └── barcadia/                               # Main package
+│       ├── __init__.py                         # Public API
+│       ├── cli.py                              # Command-line interface
+│       ├── generate_barcodes.py                # Barcode generation
+│       ├── validate_barcodes.py                # Barcode validation
+│       ├── config_utils.py                     # Configuration utilities
+│       ├── filter_utils.py                     # Core filtering utilities
+│       └── tools/                              # Utility scripts
+│           ├── generate_random_sequences.py    # Random sequence generator
+│           └── memory_benchmark.py             # Performance monitoring
+├── pyproject.toml                              # Package configuration
+└── requirements.txt                            # Python dependencies
 ```
 
-## Scripts Overview
+## Commands Overview
 
-### Main Scripts
+### Main Commands
 
-#### 1. `generate_barcodes.py` - Barcode Generation
+#### 1. `barcadia generate` - Barcode Generation
 
 **Purpose**: Generate high-performance NGS barcodes efficiently using a novel iterative growth algorithm (extension from seeds and paired mode supported).
 
@@ -245,19 +266,19 @@ NGS_barcode/
 **Basic Usage**:
 ```bash
 # Generate 1000 barcodes of length 12 from scratch (no seeds)
-python src/generate_barcodes.py --count 1000 --length 12
+barcadia generate --count 1000 --length 12
 
 # Build from a seed sequence file
-python src/generate_barcodes.py --count 1000 --length 12 --seeds seed.txt
+barcadia generate --count 1000 --length 12 --seeds seed.txt
 
 # Build from multiple seed sequence files (concatenated automatically)
-python src/generate_barcodes.py --count 1000 --length 12 --seeds seed_file1.txt seed_file2.txt
+barcadia generate --count 1000 --length 12 --seeds seed_file1.txt seed_file2.txt
 
 # Generate paired barcodes from scratch (no seeds)
-python src/generate_barcodes.py --count 1000 --length 12 --paired
+barcadia generate --count 1000 --length 12 --paired
 
 # Generate paired barcodes with paired seed files
-python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1 seed_paired1.txt --paired-seed2 seed_paired2.txt
+barcadia generate --count 1000 --length 12 --paired --paired-seed1 seed_paired1.txt --paired-seed2 seed_paired2.txt
 ```
 
 **Required Arguments**:
@@ -283,13 +304,13 @@ python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1
 - `generate_barcodes_{timestamp}.log`: Detailed generation log
 
 **Important Notes**:
-- **Seed sequences are not validated**: If using seed files (paired or unpaired), run `validate_barcodes.py` first to ensure they pass all filters
+- **Seed sequences are not validated**: If using seed files (paired or unpaired), run `barcadia validate` first to ensure they pass all filters
 - In paired mode with seeds, both `--paired-seed1` and `--paired-seed2` must be provided and have the same count/length
 - Seeds are preserved in the output files (paired or unpaired)
 
 ---
 
-#### 2. `validate_barcodes.py` - Barcode Validation
+#### 2. `barcadia validate` - Barcode Validation
 
 **Purpose**: Validate existing barcode lists against quality filters with support for variable-length sequences.
 
@@ -315,13 +336,13 @@ python src/generate_barcodes.py --count 1000 --length 12 --paired --paired-seed1
 **Basic Usage**:
 ```bash
 # Validate a single file
-python src/validate_barcodes.py --input barcodes.txt
+barcadia validate --input barcodes.txt
 
 # Validate multiple files (automatically concatenated)
-python src/validate_barcodes.py --input file1.txt file2.txt file3.txt
+barcadia validate --input file1.txt file2.txt file3.txt
 
 # Skip distance validation entirely (biological filters only)
-python src/validate_barcodes.py --input barcodes.txt --skip-distance
+barcadia validate --input barcodes.txt --skip-distance
 ```
 
 **Required Arguments**:
@@ -342,38 +363,7 @@ python src/validate_barcodes.py --input barcodes.txt --skip-distance
 
 ---
 
-### User-Facing Utility Scripts
-
-#### 3. `generate_random_sequences.py` - Test Data Generation
-
-**Purpose**: Generate random DNA sequences for testing validation scripts.
-
-**Usage**:
-```bash
-python src/tools/generate_random_sequences.py --count <num> --lengths <length1> [length2...] [--output <file>]
-```
-
-**Output**: Auto-generated filename in `test/` directory based on `count` and `length` if `--output` not specified.
-
----
-
-#### 4. `memory_benchmark.py` - Performance Monitoring
-
-**Purpose**: Monitor memory usage and performance of the main scripts.
-
-**Usage**:
-```bash
-# General usage
-python src/tools/memory_benchmark.py [--output-dir <dir>] <script_path> [script_args...]
-
-# Examples
-python src/tools/memory_benchmark.py src/generate_barcodes.py --count 1000 --length 12
-python src/tools/memory_benchmark.py src/validate_barcodes.py --input barcodes.txt
-```
-
-**Output**: Memory usage report with peak memory consumption and execution time. Log saved to specified directory (default: `test/`).
-
-### Core Library Modules
+### Shared Modules
 
 #### `config_utils.py`
 Configuration utilities and DNA encoding/decoding:
@@ -390,7 +380,46 @@ High-performance filtering algorithms with Numba JIT compilation:
 - Adaptive method selection between pairwise and neighbor enumeration approaches
 - Neighbor enumeration for efficient distance constraint checking
 
+### Utility Scripts
+
+#### 1. `generate_random_sequences.py` - Test Data Generation
+
+**Purpose**: Generate random DNA sequences for testing validation scripts.
+
+**Usage**:
+```bash
+python src/barcadia/tools/generate_random_sequences.py --count <num> --lengths <length1> [length2...] [--output <file>]
+```
+
+**Output**: Auto-generated filename in `test/` directory based on `count` and `length` if `--output` not specified.
+
+---
+
+#### 2. `memory_benchmark.py` - Performance Monitoring
+
+**Purpose**: Monitor memory usage and performance of the main scripts.
+
+**Usage**:
+```bash
+# General usage
+python src/barcadia/tools/memory_benchmark.py [--mem-output-dir <dir>] <command> [args...]
+
+# Examples
+python src/barcadia/tools/memory_benchmark.py barcadia generate --args
+python src/barcadia/tools/memory_benchmark.py barcadia validate --args
+```
+
+**Output**: Memory usage report with peak memory consumption and execution time. Log saved to specified directory (default: `test/`).
+
 ## Changelog
+
+### Version 3.0
+- Major refactoring: Restructured as proper Python package with unified CLI
+- New CLI: `barcadia generate` and `barcadia validate` commands
+- Installation: Now installable via `pip install -e .`
+- Enhanced documentation and code organization
+
+---
 
 ### Version 2.4
 - Enhanced documentation and code organization (added ExistingSequenceSet class to facilitate file loading for generation and validation)
@@ -429,5 +458,4 @@ High-performance filtering algorithms with Numba JIT compilation:
 ---
 
 ### Version 1.1
-
 - Initial release with updated readme file

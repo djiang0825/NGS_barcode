@@ -4,7 +4,7 @@ generate_random_sequences.py
 
 Generate random DNA sequences for testing validation scripts (variable length sequences supported).
 
-Example usage: python src/tools/generate_random_sequences.py --count 100 --lengths 15 20 25
+Example usage: python src/barcadia/tools/generate_random_sequences.py --count 10000 --lengths 12 13
 
 Output: random DNA sequences (one per line as .txt)
 
@@ -13,7 +13,7 @@ Optional arguments:
 
 Required arguments:
 --count: number of sequences to generate
---lengths: possible lengths for sequences (e.g., 15 20 25)
+--lengths: possible lengths for sequences
 """
 
 import argparse
@@ -25,7 +25,7 @@ import numpy as np
 # Add src directory to Python path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.config_utils import decode_sequence
+from config_utils import decode_sequence  # type: ignore
 
 def generate_random_sequence(length):
     """Generate a single random DNA sequence of given length as integer array"""
@@ -34,13 +34,14 @@ def generate_random_sequence(length):
 def main():
     parser = argparse.ArgumentParser(
         description="Generate random DNA sequences for testing",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog="Example: python src/barcadia/tools/generate_random_sequences.py --count 10000 --lengths 12 13"
     )
     
     parser.add_argument('--count', type=int, required=True,
                        help='Number of sequences to generate')
     parser.add_argument('--lengths', nargs='+', type=int, required=True,
-                       help='Possible lengths for sequences (e.g., 15 20 25)')
+                       help='Possible lengths for sequences')
     parser.add_argument('--output', type=str, 
                        help='Output file path (default: test/{count}_random_{min}to{max}bp_sequences.txt)')
     

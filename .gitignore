@@ -2,13 +2,20 @@
 barcode-env/
 
 # Python cache
-src/utils/__pycache__/
+src/barcadia/__pycache__/
+src/barcadia/tools/__pycache__/
+
+# Python build files
+src/barcadia.egg-info/
+
+# Test-related files
+test_cases.txt
+test/
+test_runner.py
+
+# Benchmark-related files
+benchmark_output/
+benchmark_runner.py
 
 # OS files
 .DS_Store
-
-# Test cases
-test_cases.txt
-
-# Test output
-test/
