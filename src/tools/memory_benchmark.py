@@ -111,7 +111,6 @@ def main():
     
     script_path = args.script_path
     script_args = args.script_args
-    output_dir = args.output_dir
     
     # Setup logging
     log_filepath = setup_logging(args, "memory_benchmark")

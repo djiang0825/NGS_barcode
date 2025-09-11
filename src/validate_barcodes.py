@@ -44,9 +44,8 @@ from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
 # Import utility functions
-from utils.config_utils import decode_sequence
-from utils.filter_utils import check_gc_content_int, check_homopolymer_int, calculate_distance, generate_hamming_neighbors, validate_filter_arguments, select_distance_method
-from utils.config_utils import setup_logging, read_files
+from utils.config_utils import decode_sequence, setup_logging, ExistingSequenceSet
+from utils.filter_utils import validate_filter_arguments, check_gc_content_int, check_homopolymer_int, calculate_distance, select_distance_method, generate_hamming_neighbors
 
 def validate_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
     """Check if sequence passes all biological filters and return all violations"""
@@ -306,9 +305,9 @@ def validate_barcodes(sequences, gc_min, gc_max, homopolymer_max, min_distance, 
     
     # Final output
     if overall_valid:
-        print("✅ All barcodes are valid!")
+        print("All barcodes are valid!")
     else:
-        print(f"❌ VALIDATION FAILED!")
+        print(f"VALIDATION FAILED!")
 
 def setup_argument_parser():
     """Setup and return the argument parser for barcode validation"""
@@ -345,29 +344,22 @@ def setup_argument_parser():
 
     return parser
 
-def load_and_validate_inputs(args):
-    """Load and validate input files, return sequences and has_mixed_lengths flag"""
-    # 1. Validate that input files exist
-    for input_file in args.input:
-        if not os.path.exists(input_file):
-            raise ValueError(f"Input file does not exist: {input_file}")
-    
-    # 2. Use shared function to read files and get length counts
-    sequences, length_counts = read_files(args.input)
+def validate_validator_arguments(args, length_counts):
+    """Validate validator-specific arguments (length, distance, homopolymer) and return has_mixed_lengths flag"""
     input_length = max(length_counts.keys())
 
-    # 3. Homopolymer repeat x max input length validation
+    # Homopolymer repeat x max input length validation
     if args.homopolymer_max >= input_length:
         raise ValueError(f"Maximum homopolymer repeat length must be < max input length ({input_length}bp)")
 
-    # 4. Minimum distance x max input length validation
+    # Minimum distance x max input length validation
     if args.min_distance >= input_length:
         raise ValueError(f"Minimum distance must be < max input length ({input_length}bp)")
-
-    # 5. Check for mixed lengths
+    
+    # Check for mixed lengths
     has_mixed_lengths = len(length_counts) > 1
-
-    return sequences, has_mixed_lengths
+    
+    return has_mixed_lengths
 
 def main():
     parser = setup_argument_parser()
@@ -375,12 +367,15 @@ def main():
     log_filepath = setup_logging(args, "validate_barcodes")
     validate_filter_arguments(args) # simple validation of filter arguments
 
-    # Load and validate input files
-    sequences, has_mixed_lengths = load_and_validate_inputs(args)
+    # Load input files using ExistingSequenceSet
+    sequence_set = ExistingSequenceSet.from_input_files(args.input)
+    
+    # Validate validator-specific arguments and get mixed lengths flag
+    has_mixed_lengths = validate_validator_arguments(args, sequence_set.length_counts)
     
     # Validate barcodes
     validate_barcodes(
-        sequences=sequences,
+        sequences=sequence_set.sequences,
         gc_min=args.gc_min,
         gc_max=args.gc_max,
         homopolymer_max=args.homopolymer_max,

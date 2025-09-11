@@ -1,7 +1,7 @@
-# Barcadia (v2.3)  
+# Barcadia (v2.4)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-2.3-blue)  
+![version](https://img.shields.io/badge/version-2.4-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -129,12 +129,13 @@ However, these theoretical bounds only capture the minimum distance constraints.
    ```bash
    python src/generate_barcodes.py --count <large_number> --length <your_length> --gc-min 0 --gc-max 1 --homopolymer-max <your_length>
    ```
-   *Use a count near the GV bound for your parameters, and set homopolymer-max to your barcode length*
+   *Note: Use a count near the GV bound for your parameters, and set homopolymer-max to your barcode length. This overrides the default biological filters (gc-min=0.4, gc-max=0.6, homopolymer-max=2).*
 
 2. **Check how many pass biological filters** (skipping distance validation):
    ```bash
    python src/validate_barcodes.py --input barcodes.txt --skip-distance
    ```
+   *Note: By default, this validation step uses the biological filters (gc-min=0.4, gc-max=0.6, homopolymer-max=2) to check how many sequences pass. You can also set custom filter values if desired.*
 
 3. **Calculate empirical bounds**: Multiply the theoretical bounds by the observed pass rate from step 2 to get realistic achievable library sizes under all constraints.
 
@@ -235,7 +236,7 @@ NGS_barcode/
   - Similar to `--seeds`, can accommodate differences in lengths between seed pool and newly-generated sequences (Hamming for equal/Levenshtein for mixed)
   - Incompatible with `--seeds`
 - **Adaptive method selection for distance filtering**:
-  - Small barcdoe sets (<10K sequences including seeds): Pairwise distance checking (fast for small sets)
+  - Small barcode sets (<10K sequences including seeds): Pairwise distance checking (fast for small sets)
   - Large mixed-length (within seeds and/or between seeds and new barcodes): Pairwise distance checking (neighbor enumeration requires complex Levenshtein handling)
   - Large equal-length (no seeds or everything equal-length): Choose between pairwise and neighbor enumeration based on min_distance
     * Pairwise distance checking: when min_distance > 4 (large number of neighbors to check)
@@ -378,7 +379,7 @@ python src/tools/memory_benchmark.py src/validate_barcodes.py --input barcodes.t
 Configuration utilities and DNA encoding/decoding:
 - DNA bases encoded as 0-3 integers (A=0, T=1, G=2, C=3) for enhanced efficiency
 - Convert between DNA strings and integer arrays for optimized processing
-- Logging setup and file reading utilities
+- Logging setup and file reading utilities (ExistingSequenceSet class)
 
 #### `filter_utils.py`
 High-performance filtering algorithms with Numba JIT compilation:
@@ -390,6 +391,11 @@ High-performance filtering algorithms with Numba JIT compilation:
 - Neighbor enumeration for efficient distance constraint checking
 
 ## Changelog
+
+### Version 2.4
+- Enhanced documentation and code organization (added ExistingSequenceSet class to facilitate file loading for generation and validation)
+
+---
 
 ### Version 2.3
 - Unified parallel processing logic between generation and validation
