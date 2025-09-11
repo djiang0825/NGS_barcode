@@ -6,18 +6,37 @@ Usage:
 """
 
 import sys
+from importlib.metadata import version
 from . import generate_barcodes as gen
 from . import validate_barcodes as val
 
 TOP_USAGE = (
-    "Usage:\n"
-    "  barcadia generate [options...]\n"
-    "  barcadia validate [options...]\n"
+    "Barcadia - Best-in-class toolkit for large-scale NGS barcode generation and validation\n"
     "\n"
-    "Use `barcadia <subcommand> --help` to see subcommand options.\n"
+    "Usage:\n"
+    "  barcadia <command> [options...]\n"
+    "\n"
+    "Commands:\n"
+    "  generate    Generate high-performance DNA barcodes for NGS applications\n"
+    "  validate    Validate DNA barcodes against quality filters\n"
+    "\n"
+    "Examples:\n"
+    "  barcadia generate --count 1000 --length 12\n"
+    "  barcadia validate --input barcodes.txt\n"
+    "  barcadia generate --help\n"
+    "  barcadia validate --help\n"
+    "\n"
+    "Global options:\n"
+    "  --help, -h     Show this help message\n"
+    "  --version, -v  Show version information\n"
 )
 
 def main() -> int:
+    # Handle version flag
+    if len(sys.argv) >= 2 and sys.argv[1] in {"-v", "--version"}:
+        print(version("barcadia"))
+        return 0
+    
     # No subcommand → show top-level help
     if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
         print(TOP_USAGE, file=sys.stderr)

@@ -1,7 +1,7 @@
-# Barcadia (v3.0)  
+# Barcadia (v3.1)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-3.0-blue)  
+![version](https://img.shields.io/badge/version-3.1-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -27,8 +27,8 @@ Barcadia makes it easy to design small or large NGS barcode sets that are optimi
   - [Requirements](#requirements)
   - [Setup](#setup)
 - [Quick Start](#quick-start)
-- [Project Structure](#project-structure)
-- [Commands Overview](#commands-overview)
+- [Package Overview](#package-overview)
+  - [Project Structure](#project-structure)
   - [Main Commands](#main-commands)
   - [Shared Modules](#shared-modules)
   - [Utility Scripts](#utility-scripts)
@@ -202,13 +202,18 @@ barcadia generate --count 1000 --length 12
 # Validate existing barcodes
 barcadia validate --input barcodes.txt
 
+# Check version
+barcadia --version
+
 # Get help for any command
 barcadia --help
 barcadia generate --help
 barcadia validate --help
 ```
 
-## Project Structure
+## Package Overview
+
+### Project Structure
 
 ```
 NGS_barcode/
@@ -226,8 +231,6 @@ NGS_barcode/
 ├── pyproject.toml                              # Package configuration
 └── requirements.txt                            # Python dependencies
 ```
-
-## Commands Overview
 
 ### Main Commands
 
@@ -412,6 +415,10 @@ python src/barcadia/tools/memory_benchmark.py barcadia validate --args
 **Output**: Memory usage report with peak memory consumption and execution time. Log saved to specified directory (default: `test/`).
 
 ## Changelog
+
+### Version 3.1
+- Added `--version` flag to CLI
+- Enhanced help system with better descriptions and examples
 
 ### Version 3.0
 - Major refactoring: Restructured as proper Python package with unified CLI
