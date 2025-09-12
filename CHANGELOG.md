@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 3.2.1 – Minor fix in documentation
+- Updated URL
+
+---
+
 ## Version 3.2.0 – PyPI release
 - Prepared and published the package to PyPI
 - Added citation information

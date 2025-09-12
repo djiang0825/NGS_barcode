@@ -4,10 +4,10 @@ authors:
   - family-names: Jiang
     given-names: Danting
 title: "Barcadia: a high-performance, memory-efficient toolkit for fast generation and validation of large-scale NGS barcodes"
-version: 3.2.0
+version: 3.2.1
 date-released: 2025-09-12
 url: "https://pypi.org/project/barcadia/"
-repository-code: "https://github.com/danting/barcadia"
+repository-code: "https://github.com/djiang0825/NGS_barcode"
 license: Apache-2.0
 keywords:
   - bioinformatics

@@ -1,7 +1,7 @@
-# Barcadia (v3.2.0)  
+# Barcadia (v3.2.1)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-3.2.0-blue)  
+![version](https://img.shields.io/badge/version-3.2.1-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -184,7 +184,7 @@ pip install barcadia
 
 #### Method 2: Install from Source (Development)
 ```bash
-git clone https://github.com/danting/barcadia.git
+git clone https://github.com/djiang0825/NGS_barcode.git
 cd barcadia
 pip install -e .
 ```
@@ -427,8 +427,8 @@ If you use Barcadia in your research, please cite:
   year={2025},
   date={2025-09-12},
   url={https://pypi.org/project/barcadia/},
-  note={Code repository: https://github.com/danting/barcadia},
-  version={3.2.0}
+  note={Code repository: https://github.com/djiang0825/NGS_barcode},
+  version={3.2.1}
 }
 ```
 
