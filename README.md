@@ -1,7 +1,7 @@
-# Barcadia (v3.1)  
+# Barcadia (v3.2.0)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-3.1-blue)  
+![version](https://img.shields.io/badge/version-3.2.0-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -24,14 +24,15 @@ Barcadia makes it easy to design small or large NGS barcode sets that are optimi
 - [Theoretical Bounds](#theoretical-bounds)
 - [Benchmarking Highlights](#benchmarking-highlights)
 - [Installation](#installation)
-  - [Requirements](#requirements)
   - [Setup](#setup)
+  - [Requirements](#requirements)
 - [Quick Start](#quick-start)
 - [Package Overview](#package-overview)
   - [Project Structure](#project-structure)
   - [Main Commands](#main-commands)
   - [Shared Modules](#shared-modules)
   - [Utility Scripts](#utility-scripts)
+- [Citation](#citation)
 - [Changelog](#changelog)
 
 ## Background
@@ -128,13 +129,13 @@ However, these theoretical bounds only capture the minimum distance constraints.
 
 1. **Generate sequences with only distance constraints** (no biological filters):
    ```bash
-   barcadia generate --count <large_number> --length <your_length> --gc-min 0 --gc-max 1 --homopolymer-max <your_length>
+   barcadia generate --count <large_number> --length <your_length> --gc-min 0 --gc-max 1 --homopolymer-max <your_length> --output-dir <your_output_dir>
    ```
    *Note: Use a count near the GV bound for your parameters, and set homopolymer-max to your barcode length. This overrides the default biological filters (gc-min=0.4, gc-max=0.6, homopolymer-max=2).*
 
 2. **Check how many pass biological filters** (skipping distance validation):
    ```bash
-   barcadia validate --input barcodes.txt --skip-distance
+   barcadia validate --input <your_output_dir>/barcodes.txt --skip-distance --output-dir <your_output_dir>
    ```
    *Note: By default, this validation step uses the biological filters (gc-min=0.4, gc-max=0.6, homopolymer-max=2) to check how many sequences pass. You can also set custom filter values if desired.*
 
@@ -174,22 +175,27 @@ Below are performance benchmarks for **barcode validation** on a MacBook Pro 201
 
 ## Installation
 
-### Requirements
+### Setup
 
-- Python 3.12+ (tested with Python 3.12)
-- Required packages (install via `pip install -e .`):
+#### Method 1: Install from PyPI (Recommended)
+```bash
+pip install barcadia
+```
+
+#### Method 2: Install from Source (Development)
+```bash
+git clone https://github.com/danting/barcadia.git
+cd barcadia
+pip install -e .
+```
+
+### Requirements
+- Python 3.12+
+- Dependencies (automatically installed):
   - numpy==2.2.6
   - numba==0.61.2 (for JIT compilation acceleration)
   - llvmlite==0.44.0
   - psutil==7.0.0
-
-### Setup
-
-```bash
-git clone https://github.com/djiang0825/NGS_barcode.git
-cd NGS_barcode
-pip install -e .
-```
 
 This installs Barcadia as a Python package with the `barcadia` command-line tool.
 
@@ -200,7 +206,7 @@ This installs Barcadia as a Python package with the `barcadia` command-line tool
 barcadia generate --count 1000 --length 12
 
 # Validate existing barcodes
-barcadia validate --input barcodes.txt
+barcadia validate --input test/barcodes.txt
 
 # Check version
 barcadia --version
@@ -216,20 +222,16 @@ barcadia validate --help
 ### Project Structure
 
 ```
-NGS_barcode/
-├── src/
-│   └── barcadia/                               # Main package
-│       ├── __init__.py                         # Public API
-│       ├── cli.py                              # Command-line interface
-│       ├── generate_barcodes.py                # Barcode generation
-│       ├── validate_barcodes.py                # Barcode validation
-│       ├── config_utils.py                     # Configuration utilities
-│       ├── filter_utils.py                     # Core filtering utilities
-│       └── tools/                              # Utility scripts
-│           ├── generate_random_sequences.py    # Random sequence generator
-│           └── memory_benchmark.py             # Performance monitoring
-├── pyproject.toml                              # Package configuration
-└── requirements.txt                            # Python dependencies
+barcadia/                                       # Main package
+├── __init__.py                                 # Public API
+├── cli.py                                      # Command-line interface
+├── generate_barcodes.py                        # Barcode generation
+├── validate_barcodes.py                        # Barcode validation
+├── config_utils.py                             # Configuration utilities
+├── filter_utils.py                             # Core filtering utilities
+└── tools/                                      # Utility scripts
+    ├── generate_random_sequences.py            # Random sequence generator
+    └── memory_benchmark.py                     # Performance monitoring
 ```
 
 ### Main Commands
@@ -339,13 +341,13 @@ barcadia generate --count 1000 --length 12 --paired --paired-seed1 seed_paired1.
 **Basic Usage**:
 ```bash
 # Validate a single file
-barcadia validate --input barcodes.txt
+barcadia validate --input test/barcodes.txt
 
 # Validate multiple files (automatically concatenated)
 barcadia validate --input file1.txt file2.txt file3.txt
 
 # Skip distance validation entirely (biological filters only)
-barcadia validate --input barcodes.txt --skip-distance
+barcadia validate --input test/barcodes.txt --skip-distance
 ```
 
 **Required Arguments**:
@@ -391,7 +393,7 @@ High-performance filtering algorithms with Numba JIT compilation:
 
 **Usage**:
 ```bash
-python src/barcadia/tools/generate_random_sequences.py --count <num> --lengths <length1> [length2...] [--output <file>]
+python -m barcadia.tools.generate_random_sequences --count <num> --lengths <length1> [length2...] [--output <file>]
 ```
 
 **Output**: Auto-generated filename in `test/` directory based on `count` and `length` if `--output` not specified.
@@ -405,64 +407,33 @@ python src/barcadia/tools/generate_random_sequences.py --count <num> --lengths <
 **Usage**:
 ```bash
 # General usage
-python src/barcadia/tools/memory_benchmark.py [--mem-output-dir <dir>] <command> [args...]
+python -m barcadia.tools.memory_benchmark [--mem-output-dir <dir>] <command> [args...]
 
 # Examples
-python src/barcadia/tools/memory_benchmark.py barcadia generate --args
-python src/barcadia/tools/memory_benchmark.py barcadia validate --args
+python -m barcadia.tools.memory_benchmark barcadia generate --args
+python -m barcadia.tools.memory_benchmark barcadia validate --args
 ```
 
 **Output**: Memory usage report with peak memory consumption and execution time. Log saved to specified directory (default: `test/`).
 
+## Citation
+
+If you use Barcadia in your research, please cite:
+
+```bibtex
+@software{barcadia2025,
+  title={Barcadia: a high-performance, memory-efficient toolkit for fast generation and validation of large-scale NGS barcodes},
+  author={Jiang, Danting},
+  year={2025},
+  date={2025-09-12},
+  url={https://pypi.org/project/barcadia/},
+  note={Code repository: https://github.com/danting/barcadia},
+  version={3.2.0}
+}
+```
+
+A preprint will be posted soon. Citation information will be updated with a DOI once available.
+
 ## Changelog
 
-### Version 3.1
-- Added `--version` flag to CLI
-- Enhanced help system with better descriptions and examples
-
-### Version 3.0
-- Major refactoring: Restructured as proper Python package with unified CLI
-- New CLI: `barcadia generate` and `barcadia validate` commands
-- Installation: Now installable via `pip install -e .`
-- Enhanced documentation and code organization
-
----
-
-### Version 2.4
-- Enhanced documentation and code organization (added ExistingSequenceSet class to facilitate file loading for generation and validation)
-
----
-
-### Version 2.3
-- Unified parallel processing logic between generation and validation
-- Enhanced documentation and code organization
-
----
-
-### Version 2.2
-- Improved adaptive distance method selection criteria for generation and validation
-- Optimized argument validation logic for generation (added GV and Hamming bounds calculation when no seeds or equal-length) and validation
-- Updated README with new benchmarking results for generation and validation
-- Enhanced documentation and code organization
-
----
-
-### Version 2.1
-- Implemented adaptive generation algorithm selection (neighbor enumeration vs pairwise) with significantly improved performance
-- Updated README with new benchmarking results for generation
-- Enhanced documentation and code organization
-
----
-
-### Version 2.0
-- Enhanced paired barcode generation with seed files (added `--paired-seed1`, `--paired-seed2`)
-- Implemented adaptive validation algorithm selection (neighbor enumeration vs pairwise) with significantly improved performance
-- Updated README with new benchmarking results for validation
-- Optimized progress logging and violation reporting for validation
-- Implemented early-stopping optimization for Levenshtein distance calculation
-- Enhanced documentation and code organization
-
----
-
-### Version 1.1
-- Initial release with updated readme file
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.

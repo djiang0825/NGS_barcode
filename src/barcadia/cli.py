@@ -11,7 +11,7 @@ from . import generate_barcodes as gen
 from . import validate_barcodes as val
 
 TOP_USAGE = (
-    "Barcadia - Best-in-class toolkit for large-scale NGS barcode generation and validation\n"
+    "Barcadia - A high-performance, memory-efficient toolkit for fast generation and validation of large-scale NGS barcodes\n"
     "\n"
     "Usage:\n"
     "  barcadia <command> [options...]\n"
@@ -21,10 +21,11 @@ TOP_USAGE = (
     "  validate    Validate DNA barcodes against quality filters\n"
     "\n"
     "Examples:\n"
-    "  barcadia generate --count 1000 --length 12\n"
-    "  barcadia validate --input barcodes.txt\n"
+    "  barcadia --help\n"
     "  barcadia generate --help\n"
     "  barcadia validate --help\n"
+    "  barcadia generate --count 1000 --length 12\n"
+    "  barcadia validate --input test/barcodes.txt\n"
     "\n"
     "Global options:\n"
     "  --help, -h     Show this help message\n"
