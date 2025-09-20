@@ -1,7 +1,7 @@
-# Barcadia (v3.2.1)  
+# Barcadia (v3.2.2)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-3.2.1-blue)  
+![version](https://img.shields.io/badge/version-3.2.2-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -24,8 +24,8 @@ Barcadia makes it easy to design small or large NGS barcode sets that are optimi
 - [Theoretical Bounds](#theoretical-bounds)
 - [Benchmarking Highlights](#benchmarking-highlights)
 - [Installation](#installation)
-  - [Setup](#setup)
   - [Requirements](#requirements)
+  - [Setup](#setup)
 - [Quick Start](#quick-start)
 - [Package Overview](#package-overview)
   - [Project Structure](#project-structure)
@@ -175,7 +175,23 @@ Below are performance benchmarks for **barcode validation** on a MacBook Pro 201
 
 ## Installation
 
+### Requirements
+- Python 3.12+
+- Dependencies:
+  - numpy==2.2.6
+  - numba==0.61.2
+  - llvmlite==0.44.0
+  - psutil==7.0.0
+
 ### Setup
+
+#### Optional: Virtual Environment Setup
+
+```bash
+# Create and activate virtual environment
+python -m venv barcode-env
+source barcode-env/bin/activate
+```
 
 #### Method 1: Install from PyPI (Recommended)
 ```bash
@@ -185,19 +201,11 @@ pip install barcadia
 #### Method 2: Install from Source (Development)
 ```bash
 git clone https://github.com/djiang0825/NGS_barcode.git
-cd barcadia
+cd NGS_barcode
 pip install -e .
 ```
 
-### Requirements
-- Python 3.12+
-- Dependencies (automatically installed):
-  - numpy==2.2.6
-  - numba==0.61.2 (for JIT compilation acceleration)
-  - llvmlite==0.44.0
-  - psutil==7.0.0
-
-This installs Barcadia as a Python package with the `barcadia` command-line tool.
+This installs Barcadia as a Python package with the `barcadia` command-line tool. Dependencies are automatically installed via pyproject.toml for both installation methods. The complete installation (including all dependencies) requires approximately 260MB of disk space.
 
 ## Quick Start
 
@@ -428,7 +436,7 @@ If you use Barcadia in your research, please cite:
   date={2025-09-12},
   url={https://pypi.org/project/barcadia/},
   note={Code repository: https://github.com/djiang0825/NGS_barcode},
-  version={3.2.1}
+  version={3.2.2}
 }
 ```
 
