@@ -1,7 +1,7 @@
-# Barcadia (v3.2.2)  
+# Barcadia (v3.2.3)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-3.2.2-blue)  
+![version](https://img.shields.io/badge/version-3.2.3-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -182,6 +182,8 @@ Below are performance benchmarks for **barcode validation** on a MacBook Pro 201
   - numba==0.61.2
   - llvmlite==0.44.0
   - psutil==7.0.0
+
+*(For development, Ruff is used for linting and formatting to ensure code quality.)*
 
 ### Setup
 
@@ -436,7 +438,7 @@ If you use Barcadia in your research, please cite:
   date={2025-09-12},
   url={https://pypi.org/project/barcadia/},
   note={Code repository: https://github.com/djiang0825/NGS_barcode},
-  version={3.2.2}
+  version={3.2.3}
 }
 ```
 

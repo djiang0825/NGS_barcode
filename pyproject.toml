@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "barcadia"
-version = "3.2.2"
+version = "3.2.3"
 description = "A high-performance, memory-efficient toolkit for fast generation and validation of large-scale NGS barcodes"
 readme = "README.md"
 license = "Apache-2.0"
@@ -31,6 +31,9 @@ classifiers = [
     "Natural Language :: English",
 ]
 
+[project.optional-dependencies]
+dev = ["ruff"]
+
 [project.urls]
 Repository = "https://github.com/djiang0825/NGS_barcode"
 PyPI = "https://pypi.org/project/barcadia/"
@@ -41,3 +44,19 @@ packages = ["barcadia", "barcadia.tools"]
 
 [project.scripts]
 barcadia = "barcadia.cli:main"
+
+[tool.ruff]
+line-length = 200
+target-version = "py312"
+
+[tool.ruff.lint]
+# High-signal only: bugs, key style errors, gentle modernizations, sorted imports
+select = ["F", "E4", "E7", "E9", "B", "UP", "SIM", "I"]
+ignore = ["T201"]  # allow print()
+fixable = ["ALL"]
+
+[tool.ruff.format]
+# Black-like formatting with double quotes
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

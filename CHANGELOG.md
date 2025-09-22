@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 3.2.3 – Integrated Ruff for code quality
+- Added Ruff for linting and code formatting in development
+- Updated toml file and README
+
+---
+
 ## Version 3.2.2 – Minor fix in documentation
 - Updated installation instructions
 

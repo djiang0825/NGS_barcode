@@ -13,10 +13,9 @@ dist/
 test_cases.txt
 test/
 test_runner.py
-
-# Benchmark-related files
 benchmark_output/
 benchmark_runner.py
+release_notes.txt
 
 # OS files
 .DS_Store

@@ -7,6 +7,7 @@ Usage:
 
 import sys
 from importlib.metadata import version
+
 from . import generate_barcodes as gen
 from . import validate_barcodes as val
 
@@ -32,12 +33,13 @@ TOP_USAGE = (
     "  --version, -v  Show version information\n"
 )
 
+
 def main() -> int:
     # Handle version flag
     if len(sys.argv) >= 2 and sys.argv[1] in {"-v", "--version"}:
         print(version("barcadia"))
         return 0
-    
+
     # No subcommand → show top-level help
     if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
         print(TOP_USAGE, file=sys.stderr)
@@ -56,6 +58,7 @@ def main() -> int:
     # Unknown subcommand
     print(f"Unknown subcommand: {cmd}\n\n{TOP_USAGE}", file=sys.stderr)
     return 2
+
 
 if __name__ == "__main__":
     sys.exit(main())
