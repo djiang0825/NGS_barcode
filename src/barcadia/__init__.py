@@ -11,10 +11,12 @@ Public API:
 """
 
 # Public API - only expose the core functions
+from .filter_utils import Filter
 from .generate_barcodes import generate_barcodes_core
 from .validate_barcodes import validate_barcodes_core
 
 __all__ = [
+    "Filter",
     "generate_barcodes_core",
     "validate_barcodes_core",
 ]

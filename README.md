@@ -1,7 +1,7 @@
-# Barcadia (v3.2.3)  
+# Barcadia (v3.3.0)  
 *Best-in-class toolkit for large-scale NGS barcode generation and validation* 
 
-![version](https://img.shields.io/badge/version-3.2.3-blue)  
+![version](https://img.shields.io/badge/version-3.3.0-blue)  
 ![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen)  
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey) 
 
@@ -426,6 +426,23 @@ python -m barcadia.tools.memory_benchmark barcadia validate --args
 
 **Output**: Memory usage report with peak memory consumption and execution time. Log saved to specified directory (default: `test/`).
 
+## Core APIs
+
+For programmatic usage, the package provides clean APIs for barcode generation and validation:
+
+```python
+from barcadia import Filter, generate_barcodes_core, validate_barcodes_core
+
+# Configure filtering criteria
+filter_params = Filter(gc_min=0.4, gc_max=0.6, homopolymer_max=2, min_distance=3)
+
+# Generate 1000 barcodes of length 12
+barcodes = generate_barcodes_core(target_count=1000, length=12, filter_params=filter_params)
+
+# Validate the generated barcodes
+result = validate_barcodes_core(sequences=barcodes, filter_params=filter_params)
+```
+
 ## Citation
 
 If you use Barcadia in your research, please cite:
@@ -438,7 +455,7 @@ If you use Barcadia in your research, please cite:
   date={2025-09-12},
   url={https://pypi.org/project/barcadia/},
   note={Code repository: https://github.com/djiang0825/NGS_barcode},
-  version={3.2.3}
+  version={3.3.0}
 }
 ```
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 3.3.0 – API improvements and code quality
+- Added Filter dataclass for cleaner function signatures
+- Improved validation API with structured return types
+- Updated README
+
 ## Version 3.2.3 – Integrated Ruff for code quality
 - Added Ruff for linting and code formatting in development
 - Updated toml file and README

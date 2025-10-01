@@ -42,11 +42,26 @@ import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 
 # Import utility functions
 from .config_utils import ExistingSequenceSet, decode_sequence, setup_logging
-from .filter_utils import calculate_distance, check_gc_content_int, check_homopolymer_int, generate_hamming_neighbors, select_distance_method, validate_filter_arguments
+from .filter_utils import Filter, calculate_distance, check_gc_content_int, check_homopolymer_int, generate_hamming_neighbors, select_distance_method
+
+
+@dataclass
+class ValidationResult:
+    """Result of barcode validation containing all validation data"""
+    overall_valid: bool
+    total_sequences: int
+    biological_passed: int
+    biological_failed: int
+    biological_violations: list[tuple[int, str, str]]  # (line_num, sequence, reason)
+    distance_skipped: bool
+    distance_violation: tuple[int, int, str, str, int] | None  # (line1, line2, seq1, seq2, distance)
+    validation_method: str
+    features_checked: int
 
 
 def validate_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
@@ -170,14 +185,16 @@ def validate_distances(sequences, min_distance, method, cpus, chunk_size):
             return False, total_pairs_checked, None
 
 
-def validate_barcodes_core(sequences, gc_min, gc_max, homopolymer_max, min_distance, has_mixed_lengths, skip_distance, cpus, output_dir, input_file, log_filepath):
+def validate_barcodes_core(sequences, filter_params, has_mixed_lengths=False, skip_distance=False, cpus=None) -> ValidationResult:
     """Main function to validate input barcode sets against biological filters and distance constraints"""
+    if cpus is None:
+        cpus = mp.cpu_count()
     start_time = time.time()
 
     logging.info("Starting barcode validation...")
-    logging.info(f"Filter 1 (within-sequence), GC content: {gc_min:.1%} - {gc_max:.1%}")
-    logging.info(f"Filter 2 (within-sequence), Max homopolymer repeat: {homopolymer_max}")
-    logging.info(f"Filter 3 (between-sequence), Minimum edit distance: {min_distance}")
+    logging.info(f"Filter 1 (within-sequence), GC content: {filter_params.gc_min:.1%} - {filter_params.gc_max:.1%}")
+    logging.info(f"Filter 2 (within-sequence), Max homopolymer repeat: {filter_params.homopolymer_max}")
+    logging.info(f"Filter 3 (between-sequence), Minimum edit distance: {filter_params.min_distance}")
 
     # 1. Validate sequences for biological filters
     valid_sequences = []
@@ -185,7 +202,7 @@ def validate_barcodes_core(sequences, gc_min, gc_max, homopolymer_max, min_dista
 
     for i, seq_array in enumerate(sequences):
         # Check biological filters
-        is_valid, reason = validate_biological_filters(seq_array, gc_min, gc_max, homopolymer_max)
+        is_valid, reason = validate_biological_filters(seq_array, filter_params.gc_min, filter_params.gc_max, filter_params.homopolymer_max)
 
         if is_valid:
             valid_sequences.append(seq_array)
@@ -218,7 +235,7 @@ def validate_barcodes_core(sequences, gc_min, gc_max, homopolymer_max, min_dista
     else:
         logging.info("Validating distances for sequences that passed biological filters...")
         # Determine method and calculate chunk size for pairwise method
-        method = select_distance_method(n, min_distance, has_mixed_lengths)
+        method = select_distance_method(n, filter_params.min_distance, has_mixed_lengths)
 
         # Calculate chunk size for pairwise method with multiple CPUs
         chunk_size = None
@@ -231,7 +248,7 @@ def validate_barcodes_core(sequences, gc_min, gc_max, homopolymer_max, min_dista
             logging.info(f"Using parallel pairwise distance checking (chunk size: {chunk_size})")
 
         # Execute validation
-        early_stopped, features_checked, violation_info = validate_distances(valid_sequences, min_distance, method, cpus, chunk_size)
+        early_stopped, features_checked, violation_info = validate_distances(valid_sequences, filter_params.min_distance, method, cpus, chunk_size)
 
         # Log results
         if method == "neighbor_enumeration":
@@ -251,64 +268,78 @@ def validate_barcodes_core(sequences, gc_min, gc_max, homopolymer_max, min_dista
     logging.info(f"Overall validation: {'PASSED' if overall_valid else 'FAILED'}")
     logging.info(f"Total time: {duration:.2f} seconds")
 
-    # 3. Generate report
-    logging.info("Generating report...")
+    # Return structured result
+    return ValidationResult(
+        overall_valid=overall_valid,
+        total_sequences=len(sequences),
+        biological_passed=len(valid_sequences),
+        biological_failed=len(biological_violations),
+        biological_violations=biological_violations,
+        distance_skipped=distance_skipped,
+        distance_violation=violation_info,
+        validation_method=validation_method,
+        features_checked=features_checked
+    )
+
+
+def write_validation_report(result: ValidationResult, filter_params: Filter, args, log_filepath: str):
+    """Write validation report to file"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_file = os.path.join(output_dir, f"validation_report_{timestamp}.txt")
+    report_file = os.path.join(args.output_dir, f"validation_report_{timestamp}.txt")
 
     with open(report_file, "w") as f:
         f.write("Barcode Validation Report\n")
         f.write("=" * 50 + "\n\n")
 
-        f.write(f"Input file: {input_file}\n")
-        f.write(f"Total sequences: {len(sequences)}\n\n")
+        f.write(f"Input file: {args.input}\n")
+        f.write(f"Total sequences: {result.total_sequences}\n\n")
         f.write("Filter Settings:\n")
-        f.write(f"  GC content: {gc_min:.1%} - {gc_max:.1%}\n")
-        f.write(f"  Max homopolymer: {homopolymer_max}\n")
-        f.write(f"  Minimum distance: {min_distance}\n\n")
-        f.write(f"Biological filter passed: {len(valid_sequences)}\n")
-        f.write(f"Biological filter failed: {len(biological_violations)}\n")
+        f.write(f"  GC content: {filter_params.gc_min:.1%} - {filter_params.gc_max:.1%}\n")
+        f.write(f"  Max homopolymer: {filter_params.homopolymer_max}\n")
+        f.write(f"  Minimum distance: {filter_params.min_distance}\n\n")
+        f.write(f"Biological filter passed: {result.biological_passed}\n")
+        f.write(f"Biological filter failed: {result.biological_failed}\n")
 
-        if distance_skipped:
+        if result.distance_skipped:
             f.write("Distance validation: SKIPPED (--skip-distance flag enabled)\n")
-        elif early_stopped:
+        elif result.distance_violation:
             f.write("Distance validation: EARLY STOPPED (found first violation)\n")
-            f.write(f"  Method used: {validation_method}\n")
-            if validation_method == "neighbor_enumeration":
-                f.write(f"  Sequences processed before stopping: {features_checked:,}\n")
+            f.write(f"  Method used: {result.validation_method}\n")
+            if result.validation_method == "neighbor_enumeration":
+                f.write(f"  Sequences processed before stopping: {result.features_checked:,}\n")
             else:
-                f.write(f"  Pairs checked before stopping: {features_checked:,}\n")
+                f.write(f"  Pairs checked before stopping: {result.features_checked:,}\n")
         else:
             f.write("Distance validation: PASSED (no violations found)\n")
-            f.write(f"  Method used: {validation_method}\n")
-            if validation_method == "neighbor_enumeration":
-                f.write(f"  Total sequences processed: {features_checked:,}\n")
+            f.write(f"  Method used: {result.validation_method}\n")
+            if result.validation_method == "neighbor_enumeration":
+                f.write(f"  Total sequences processed: {result.features_checked:,}\n")
             else:
-                f.write(f"  Total pairs checked: {features_checked:,}\n")
+                f.write(f"  Total pairs checked: {result.features_checked:,}\n")
         f.write("\n")
 
-        if biological_violations:
+        if result.biological_violations:
             f.write("Biological Filter (GC content and homopolymer) Violations:\n")
             f.write("-" * 30 + "\n")
-            for line_num, seq, reason in biological_violations:
+            for line_num, seq, reason in result.biological_violations:
                 f.write(f"Line {line_num}: {seq} - {reason}\n")
             f.write("\n")
 
         # Add distance violation details if available
-        if violation_info is not None:
+        if result.distance_violation is not None:
             f.write("Distance Violations:\n")
             f.write("-" * 19 + "\n")
-            seq1_line, seq2_line, seq1_str, seq2_str, distance = violation_info
-            f.write(f"Line {seq1_line}: {seq1_str} and Line {seq2_line}: {seq2_str} - distance {distance} (minimum required: {min_distance})\n")
+            seq1_line, seq2_line, seq1_str, seq2_str, distance = result.distance_violation
+            f.write(f"Line {seq1_line}: {seq1_str} and Line {seq2_line}: {seq2_str} - distance {distance} (minimum required: {filter_params.min_distance})\n")
         f.write("\n")
 
     # Log file locations
     if log_filepath:
         logging.info(f"Log file: {log_filepath}")
     logging.info(f"Report file: {report_file}")
-
-    # Final output
-    if overall_valid:
+    
+    # Print result
+    if result.overall_valid:
         print("All barcodes are valid!")
     else:
         print("VALIDATION FAILED!")
@@ -363,7 +394,14 @@ def main(argv=None):
     parser = setup_argument_parser()
     args = parser.parse_args(argv)
     log_filepath = setup_logging(args, "validate_barcodes")
-    validate_filter_arguments(args)  # simple validation of filter arguments
+    
+    # Validate filter parameters immediately after parsing arguments
+    filter_params = Filter(
+        gc_min=args.gc_min,
+        gc_max=args.gc_max,
+        homopolymer_max=args.homopolymer_max,
+        min_distance=args.min_distance
+    )
 
     # Load input files using ExistingSequenceSet
     sequence_set = ExistingSequenceSet.from_input_files(args.input)
@@ -371,20 +409,16 @@ def main(argv=None):
     # Validate validator-specific arguments and get mixed lengths flag
     has_mixed_lengths = validate_validator_arguments(args, sequence_set.length_counts)
 
-    # Validate barcodes
-    validate_barcodes_core(
+    result = validate_barcodes_core(
         sequences=sequence_set.sequences,
-        gc_min=args.gc_min,
-        gc_max=args.gc_max,
-        homopolymer_max=args.homopolymer_max,
-        min_distance=args.min_distance,
+        filter_params=filter_params,
         has_mixed_lengths=has_mixed_lengths,
         skip_distance=args.skip_distance,
-        cpus=args.cpus,
-        output_dir=args.output_dir,
-        input_file=args.input,
-        log_filepath=log_filepath,
+        cpus=args.cpus
     )
+    
+    # Write report
+    write_validation_report(result, filter_params, args, log_filepath)
 
 
 if __name__ == "__main__":

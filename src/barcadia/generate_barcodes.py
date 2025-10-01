@@ -66,7 +66,7 @@ import numpy as np
 
 # Import utility functions
 from .config_utils import ExistingSequenceSet, decode_sequence, setup_logging
-from .filter_utils import calculate_distance, check_gc_content_int, check_homopolymer_int, generate_hamming_neighbors, hamming_distance_int, select_distance_method, validate_filter_arguments
+from .filter_utils import Filter, calculate_distance, check_gc_content_int, check_homopolymer_int, generate_hamming_neighbors, hamming_distance_int, select_distance_method
 
 
 def pass_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
@@ -220,8 +220,10 @@ def filter_within_batch(valid_candidates, min_distance, method, sequences_needed
     return newly_selected
 
 
-def generate_barcodes_core(target_count, length, gc_min, gc_max, homopolymer_max, min_distance, n_cpus, seed_pool, is_paired, has_mixed_lengths):
+def generate_barcodes_core(target_count, length, filter_params, n_cpus=None, seed_pool=None, is_paired=False, has_mixed_lengths=False):
     """Main function to generate diverse barcode set using iterative growth"""
+    if n_cpus is None:
+        n_cpus = mp.cpu_count()
     logging.info("Starting barcode generation...")
 
     # 1. First log mode information (paired vs non-paired)
@@ -261,14 +263,14 @@ def generate_barcodes_core(target_count, length, gc_min, gc_max, homopolymer_max
     batch_size = max(50, target_count // 10) if target_count <= 10000 else 10000
 
     logging.info(f"Target count: {target_count} barcode sequences of length {length}")
-    logging.info(f"Filter 1 (within-sequence), GC content: {gc_min:.1%} - {gc_max:.1%}")
-    logging.info(f"Filter 2 (within-sequence), Max homopolymer repeat length: {homopolymer_max}")
-    logging.info(f"Filter 3 (between-sequence), Minimum edit distance: {min_distance}")
+    logging.info(f"Filter 1 (within-sequence), GC content: {filter_params.gc_min:.1%} - {filter_params.gc_max:.1%}")
+    logging.info(f"Filter 2 (within-sequence), Max homopolymer repeat length: {filter_params.homopolymer_max}")
+    logging.info(f"Filter 3 (between-sequence), Minimum edit distance: {filter_params.min_distance}")
     logging.info(f"CPUs: {n_cpus}; batch size: {batch_size}")
 
     # 4. Make one global decision about which distance method to use
     # Use the shared utility function to determine the method with pre-calculated has_mixed_lengths
-    method = select_distance_method(target_count, min_distance, has_mixed_lengths)
+    method = select_distance_method(target_count, filter_params.min_distance, has_mixed_lengths)
 
     # Calculate chunk size once for pairwise method with multiple CPUs
     chunk_size = None
@@ -291,17 +293,17 @@ def generate_barcodes_core(target_count, length, gc_min, gc_max, homopolymer_max
 
         # Generate random candidate sequences with biological filtering
         logging.info(f"Batch {batch_num}: (Step 1/3) Generating {batch_size} random candidates that pass within-sequence filters...")
-        candidates = generate_random_sequences(batch_size, length, gc_min, gc_max, homopolymer_max)
+        candidates = generate_random_sequences(batch_size, length, filter_params.gc_min, filter_params.gc_max, filter_params.homopolymer_max)
         total_generated += len(candidates)
 
         # Filter candidates for distance constraints
-        logging.info(f"Batch {batch_num}: (Step 2/3) Filtering candidates for distance ≥{min_distance} with existing pool...")
-        valid_candidates = filter_candidates(candidates, selected_pool, min_distance, n_cpus, method, chunk_size)
+        logging.info(f"Batch {batch_num}: (Step 2/3) Filtering candidates for distance ≥{filter_params.min_distance} with existing pool...")
+        valid_candidates = filter_candidates(candidates, selected_pool, filter_params.min_distance, n_cpus, method, chunk_size)
 
         # Within-batch distance checking
-        logging.info(f"Batch {batch_num}: (Step 3/3) Filtering candidates for distance ≥{min_distance} within a batch...")
+        logging.info(f"Batch {batch_num}: (Step 3/3) Filtering candidates for distance ≥{filter_params.min_distance} within a batch...")
         sequences_needed = target_count - len(selected_pool)
-        newly_selected = filter_within_batch(valid_candidates, min_distance, method, sequences_needed)
+        newly_selected = filter_within_batch(valid_candidates, filter_params.min_distance, method, sequences_needed)
 
         # Add the verified batch to pool
         selected_pool.extend(newly_selected)
@@ -593,7 +595,14 @@ def main(argv=None):
     parser = setup_argument_parser()
     args = parser.parse_args(argv)
     log_filepath = setup_logging(args, "generate_barcodes")
-    validate_filter_arguments(args)  # simple validation of filter arguments
+    
+    # Validate filter parameters immediately after parsing arguments
+    filter_params = Filter(
+        gc_min=args.gc_min,
+        gc_max=args.gc_max,
+        homopolymer_max=args.homopolymer_max,
+        min_distance=args.min_distance
+    )
 
     # Initialize empty sequence set
     sequence_set = ExistingSequenceSet()
@@ -609,14 +618,10 @@ def main(argv=None):
     # Perform complex validation on generator-specific arguments and get the has_mixed_lengths flag
     has_mixed_lengths = validate_generator_arguments(args, sequence_set.sequences, sequence_set.length_counts)
 
-    # Generate barcodes
     barcodes = generate_barcodes_core(
         target_count=args.count,
         length=args.length,
-        gc_min=args.gc_min,
-        gc_max=args.gc_max,
-        homopolymer_max=args.homopolymer_max,
-        min_distance=args.min_distance,
+        filter_params=filter_params,
         n_cpus=args.cpus,
         seed_pool=sequence_set.sequences,
         is_paired=args.paired,

@@ -6,22 +6,28 @@ Filter-related utility functions with Numba JIT compilation for efficient barcod
 """
 
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 from numba import jit
 
 
-# Simple validation of filter arguments used in both generation and validation
-def validate_filter_arguments(args):
-    """Validate filter-related command line arguments and raise ValueError if invalid"""
-    if args.gc_min < 0 or args.gc_max > 1 or args.gc_min >= args.gc_max:
-        raise ValueError("GC content bounds must be: 0 ≤ gc_min < gc_max ≤ 1")
-
-    elif args.homopolymer_max < 1:
-        raise ValueError("Maximum homopolymer repeat length must be ≥ 1")
-
-    elif args.min_distance < 1:
-        raise ValueError("Minimum edit distance must be ≥ 1")
+@dataclass
+class Filter:
+    """Filter parameters for barcode generation and validation"""
+    gc_min: float
+    gc_max: float
+    homopolymer_max: int
+    min_distance: int
+    
+    def __post_init__(self):
+        """Validate filter parameters after initialization"""
+        if self.gc_min < 0 or self.gc_max > 1 or self.gc_min >= self.gc_max:
+            raise ValueError("GC content bounds must be: 0 ≤ gc_min < gc_max ≤ 1")
+        if self.homopolymer_max < 1:
+            raise ValueError("Maximum homopolymer repeat length must be ≥ 1")
+        if self.min_distance < 1:
+            raise ValueError("Minimum edit distance must be ≥ 1")
 
 
 # Biological filter functions
