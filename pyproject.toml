@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "barcadia"
-version = "3.3.0"
+version = "3.3.1"
 description = "A high-performance, memory-efficient toolkit for fast generation and validation of large-scale NGS barcodes"
 readme = "README.md"
 license = "Apache-2.0"
@@ -46,7 +46,7 @@ packages = ["barcadia", "barcadia.tools"]
 barcadia = "barcadia.cli:main"
 
 [tool.ruff]
-line-length = 200
+line-length = 150
 target-version = "py312"
 
 [tool.ruff.lint]

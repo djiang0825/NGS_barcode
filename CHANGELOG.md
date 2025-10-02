@@ -1,5 +1,8 @@
 # Changelog
 
+## Version 3.3.1 – Minor documentation fix
+- Fixed Core APIs section in README documentation
+
 ## Version 3.3.0 – API improvements and code quality
 - Added Filter dataclass for cleaner function signatures
 - Improved validation API with structured return types

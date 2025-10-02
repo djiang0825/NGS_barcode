@@ -38,7 +38,12 @@ def setup_logging(args, script_name):
     log_filepath = os.path.join(args.output_dir, log_filename)
 
     # Configure logging to both file and console
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S", handlers=[logging.FileHandler(log_filepath), logging.StreamHandler()])
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=[logging.FileHandler(log_filepath), logging.StreamHandler()],
+    )
 
     return log_filepath
 
@@ -191,7 +196,9 @@ class ExistingSequenceSet:
         # Validate paired seeds
         # 1. Check that both files have the same number of sequences
         if len(paired_seed1_pool) != len(paired_seed2_pool):
-            raise ValueError(f"Paired seed files must have the same number of sequences. Seed1: {len(paired_seed1_pool)} sequences, Seed2: {len(paired_seed2_pool)} sequences")
+            raise ValueError(
+                f"Paired seed files must have the same number of sequences. Seed1: {len(paired_seed1_pool)} sequences, Seed2: {len(paired_seed2_pool)} sequences"
+            )
 
         # 2. Check that both files have sequences of the same length within the file
         elif len(seed1_length_counts) != 1:
@@ -201,7 +208,9 @@ class ExistingSequenceSet:
 
         # 3. Check that both files have sequences of the same length between the files
         elif list(seed1_length_counts.keys())[0] != list(seed2_length_counts.keys())[0]:
-            raise ValueError(f"Paired seed files must have sequences of the same length. Seed1 length: {list(seed1_length_counts.keys())[0]}, Seed2 length: {list(seed2_length_counts.keys())[0]}")
+            raise ValueError(
+                f"Paired seed files must have sequences of the same length. Seed1 length: {list(seed1_length_counts.keys())[0]}, Seed2 length: {list(seed2_length_counts.keys())[0]}"
+            )
         else:
             # All validations passed - combine both for generation pool
             combined_sequences = paired_seed1_pool + paired_seed2_pool

@@ -9,6 +9,9 @@ src/barcadia/tools/__pycache__/
 src/barcadia.egg-info/
 dist/
 
+# Ruff cache
+.ruff_cache/
+
 # Test-related files
 test_cases.txt
 test/

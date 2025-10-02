@@ -53,6 +53,7 @@ from .filter_utils import Filter, calculate_distance, check_gc_content_int, chec
 @dataclass
 class ValidationResult:
     """Result of barcode validation containing all validation data"""
+
     overall_valid: bool
     total_sequences: int
     biological_passed: int
@@ -278,7 +279,7 @@ def validate_barcodes_core(sequences, filter_params, has_mixed_lengths=False, sk
         distance_skipped=distance_skipped,
         distance_violation=violation_info,
         validation_method=validation_method,
-        features_checked=features_checked
+        features_checked=features_checked,
     )
 
 
@@ -330,14 +331,16 @@ def write_validation_report(result: ValidationResult, filter_params: Filter, arg
             f.write("Distance Violations:\n")
             f.write("-" * 19 + "\n")
             seq1_line, seq2_line, seq1_str, seq2_str, distance = result.distance_violation
-            f.write(f"Line {seq1_line}: {seq1_str} and Line {seq2_line}: {seq2_str} - distance {distance} (minimum required: {filter_params.min_distance})\n")
+            f.write(
+                f"Line {seq1_line}: {seq1_str} and Line {seq2_line}: {seq2_str} - distance {distance} (minimum required: {filter_params.min_distance})\n"
+            )
         f.write("\n")
 
     # Log file locations
     if log_filepath:
         logging.info(f"Log file: {log_filepath}")
     logging.info(f"Report file: {report_file}")
-    
+
     # Print result
     if result.overall_valid:
         print("All barcodes are valid!")
@@ -348,7 +351,8 @@ def write_validation_report(result: ValidationResult, filter_params: Filter, arg
 def setup_argument_parser():
     """Setup and return the argument parser for barcode validation"""
     parser = argparse.ArgumentParser(
-        description="Validate DNA barcodes against quality filters (GC content, homopolymer repeats, minimum distance)", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="Validate DNA barcodes against quality filters (GC content, homopolymer repeats, minimum distance)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Required arguments
@@ -394,14 +398,9 @@ def main(argv=None):
     parser = setup_argument_parser()
     args = parser.parse_args(argv)
     log_filepath = setup_logging(args, "validate_barcodes")
-    
+
     # Validate filter parameters immediately after parsing arguments
-    filter_params = Filter(
-        gc_min=args.gc_min,
-        gc_max=args.gc_max,
-        homopolymer_max=args.homopolymer_max,
-        min_distance=args.min_distance
-    )
+    filter_params = Filter(gc_min=args.gc_min, gc_max=args.gc_max, homopolymer_max=args.homopolymer_max, min_distance=args.min_distance)
 
     # Load input files using ExistingSequenceSet
     sequence_set = ExistingSequenceSet.from_input_files(args.input)
@@ -414,9 +413,9 @@ def main(argv=None):
         filter_params=filter_params,
         has_mixed_lengths=has_mixed_lengths,
         skip_distance=args.skip_distance,
-        cpus=args.cpus
+        cpus=args.cpus,
     )
-    
+
     # Write report
     write_validation_report(result, filter_params, args, log_filepath)
 

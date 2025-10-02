@@ -80,7 +80,14 @@ def benchmark_command(command):
         logging.error("Check the command's own log file for details")
         return None
 
-    return {"command": " ".join(command), "duration_seconds": duration, "peak_memory_mb": peak_memory_mb, "return_code": return_code, "stdout": stdout, "stderr": stderr}
+    return {
+        "command": " ".join(command),
+        "duration_seconds": duration,
+        "peak_memory_mb": peak_memory_mb,
+        "return_code": return_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
 
 
 def main():

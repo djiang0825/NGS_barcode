@@ -15,11 +15,12 @@ from numba import jit
 @dataclass
 class Filter:
     """Filter parameters for barcode generation and validation"""
+
     gc_min: float
     gc_max: float
     homopolymer_max: int
     min_distance: int
-    
+
     def __post_init__(self):
         """Validate filter parameters after initialization"""
         if self.gc_min < 0 or self.gc_max > 1 or self.gc_min >= self.gc_max:

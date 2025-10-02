@@ -66,7 +66,15 @@ import numpy as np
 
 # Import utility functions
 from .config_utils import ExistingSequenceSet, decode_sequence, setup_logging
-from .filter_utils import Filter, calculate_distance, check_gc_content_int, check_homopolymer_int, generate_hamming_neighbors, hamming_distance_int, select_distance_method
+from .filter_utils import (
+    Filter,
+    calculate_distance,
+    check_gc_content_int,
+    check_homopolymer_int,
+    generate_hamming_neighbors,
+    hamming_distance_int,
+    select_distance_method,
+)
 
 
 def pass_biological_filters(seq_array, gc_min, gc_max, homopolymer_max):
@@ -254,7 +262,9 @@ def generate_barcodes_core(target_count, length, filter_params, n_cpus=None, see
         else:
             logging.info(f"Initialized pool with {seed_count} seed sequences")
             logging.info(f"Adjusted target count: {target_before_seeds} → {target_count} (including {seed_count} seed sequences)")
-        logging.warning("Building from seed lists without validation. Assuming that seed lists pass all the filters. Please run validate_barcodes.py to ensure this if necessary.")
+        logging.warning(
+            "Building from seed lists without validation. Assuming that seed lists pass all the filters. Please run validate_barcodes.py to ensure this if necessary."
+        )
     else:
         # No seeds for either mode
         logging.info("Seeds: None (building from scratch)")
@@ -313,7 +323,9 @@ def generate_barcodes_core(target_count, length, filter_params, n_cpus=None, see
         batch_time = time.time() - batch_start
         final_pass_rate = len(newly_selected) / len(candidates) * 100 if candidates else 0
 
-        logging.info(f"Batch {batch_num}: Found {len(valid_candidates)} candidates, added {len(newly_selected)} sequences that satisfied all constraints")
+        logging.info(
+            f"Batch {batch_num}: Found {len(valid_candidates)} candidates, added {len(newly_selected)} sequences that satisfied all constraints"
+        )
         logging.info(f"  Final pass rate: {final_pass_rate:.1f}% ({batch_time:.1f}s)")
         logging.info(f"Progress: {len(selected_pool)}/{target_count} sequences ({len(selected_pool) / target_count * 100:.1f}%)")
 
@@ -398,7 +410,8 @@ def write_barcode_outputs(barcodes, args, sequence_set, log_filepath):
 def setup_argument_parser():
     """Setup and return the argument parser for barcode generation"""
     parser = argparse.ArgumentParser(
-        description="Generate high-performance DNA barcodes for NGS applications (from scratch or by extending from provided seed sequences)", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="Generate high-performance DNA barcodes for NGS applications (from scratch or by extending from provided seed sequences)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Required arguments
@@ -407,7 +420,12 @@ def setup_argument_parser():
 
     # Output arguments
     parser.add_argument("--output-dir", type=str, default="test", help="Output directory for barcodes and logs")
-    parser.add_argument("--output-prefix", type=str, default="barcodes", help="Output filename prefix (adds .txt automatically; when paired mode is on, adds _paired1.txt and _paired2.txt)")
+    parser.add_argument(
+        "--output-prefix",
+        type=str,
+        default="barcodes",
+        help="Output filename prefix (adds .txt automatically; when paired mode is on, adds _paired1.txt and _paired2.txt)",
+    )
 
     # Filter arguments with defaults
     parser.add_argument("--gc-min", type=float, default=0.4, help="Minimum GC content (as fraction, e.g., 0.4 = 40%%;)")
@@ -534,7 +552,9 @@ def validate_generator_arguments(args, seed_pool, length_counts):
 
         # Distance validation for case with seeds
         if args.min_distance >= effective_length:
-            raise ValueError(f"Minimum distance must be < {effective_length} (the longer of new barcode length {args.length} and max seed length {seed_length})")
+            raise ValueError(
+                f"Minimum distance must be < {effective_length} (the longer of new barcode length {args.length} and max seed length {seed_length})"
+            )
 
         # Check for mixed lengths (within seeds or between seeds and target), will return this flag for later use
         if len(length_counts) > 1 or seed_length != args.length:
@@ -564,7 +584,9 @@ def validate_generator_arguments(args, seed_pool, length_counts):
         max_formatted = f"{max_possible:,}" if max_possible > 1000 else str(max_possible)
         min_formatted = f"{min_possible:,}" if min_possible > 1000 else str(min_possible)
 
-        logging.info(f"Bounds for barcode length {args.length}, min distance {args.min_distance}: GV (lower) bound = {min_formatted}, Hamming (upper) bound = {max_formatted}")
+        logging.info(
+            f"Bounds for barcode length {args.length}, min distance {args.min_distance}: GV (lower) bound = {min_formatted}, Hamming (upper) bound = {max_formatted}"
+        )
 
         # Validate against bounds
         if not seed_pool:
@@ -574,7 +596,9 @@ def validate_generator_arguments(args, seed_pool, length_counts):
                     f"Requested count ({args.count:,}) exceeds Hamming (upper) bound ({max_formatted}) for length {args.length}, min distance {args.min_distance}. Please reduce the requested count."
                 )
             elif args.count > min_possible:
-                logging.warning(f"Requested count ({args.count:,}) exceeds GV (lower) bound ({min_formatted}) - may take longer to generate and could potentially fail")
+                logging.warning(
+                    f"Requested count ({args.count:,}) exceeds GV (lower) bound ({min_formatted}) - may take longer to generate and could potentially fail"
+                )
         else:
             # Case 2: With seeds - check total sequences
             total_sequences = args.count + len(seed_pool)
@@ -583,7 +607,9 @@ def validate_generator_arguments(args, seed_pool, length_counts):
                     f"Total sequences ({total_sequences:,}) exceeds Hamming (upper) bound ({max_formatted}) for length {args.length}, min distance {args.min_distance}. Please reduce the requested count or seed size."
                 )
             elif total_sequences > min_possible:
-                logging.warning(f"Total sequences ({total_sequences:,}) exceeds GV (lower) bound ({min_formatted}) - may take longer to generate and could potentially fail")
+                logging.warning(
+                    f"Total sequences ({total_sequences:,}) exceeds GV (lower) bound ({min_formatted}) - may take longer to generate and could potentially fail"
+                )
     else:
         # Complex case: mixed lengths - skip bounds validation
         logging.warning("Seeds have mixed lengths or different length(s) from target. Hamming and Gilbert-Varshamov bounds validation skipped.")
@@ -595,14 +621,9 @@ def main(argv=None):
     parser = setup_argument_parser()
     args = parser.parse_args(argv)
     log_filepath = setup_logging(args, "generate_barcodes")
-    
+
     # Validate filter parameters immediately after parsing arguments
-    filter_params = Filter(
-        gc_min=args.gc_min,
-        gc_max=args.gc_max,
-        homopolymer_max=args.homopolymer_max,
-        min_distance=args.min_distance
-    )
+    filter_params = Filter(gc_min=args.gc_min, gc_max=args.gc_max, homopolymer_max=args.homopolymer_max, min_distance=args.min_distance)
 
     # Initialize empty sequence set
     sequence_set = ExistingSequenceSet()
